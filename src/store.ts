@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, chmodSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, chmodSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Refresh intervals in hours; 24 means once a day at 05:00. With the night pause, nothing runs 23:00–05:00. */
@@ -32,8 +32,10 @@ export class Store {
   db: Database;
   constructor(readonly directory: string) {
     mkdirSync(directory,{recursive:true, mode:0o700});
-    this.db = new Database(join(directory,'radar.db'),{create:true,strict:true});
-    chmodSync(join(directory,'radar.db'),0o600);
+    // Databases from before the rename (radar.db) move over once, with their WAL files.
+    if(!existsSync(join(directory,'stillfeed.db'))&&existsSync(join(directory,'radar.db')))for(const suffix of ['','-wal','-shm'])if(existsSync(join(directory,'radar.db'+suffix)))renameSync(join(directory,'radar.db'+suffix),join(directory,'stillfeed.db'+suffix));
+    this.db = new Database(join(directory,'stillfeed.db'),{create:true,strict:true});
+    chmodSync(join(directory,'stillfeed.db'),0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);

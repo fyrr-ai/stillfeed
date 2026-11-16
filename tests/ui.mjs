@@ -9,12 +9,12 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PW);
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),bun=process.env.BUN||'bun';
-const temp=mkdtempSync(path.join(tmpdir(),'radar-ui-test-')),state=path.join(temp,'state'),collected=path.join(temp,'collected');
+const temp=mkdtempSync(path.join(tmpdir(),'stillfeed-ui-test-')),state=path.join(temp,'state'),collected=path.join(temp,'collected');
 // Nothing reads the real home, its .env or an AI/X key; Refresh runs a stub instead of a paid collection.
-const env={PATH:process.env.PATH,HOME:temp,RADAR_HOME:temp,RADAR_LLM:'none',RADAR_LANGUAGE:'English',SOCIALDATA_API_KEY:'',RADAR_NO_WORKER:'1',RADAR_DISABLE_SCHEDULE:'1',RADAR_COLLECT_COMMAND:`sleep 1 && : > '${collected}'`};
+const env={PATH:process.env.PATH,HOME:temp,STILLFEED_HOME:temp,STILLFEED_LLM:'none',STILLFEED_LANGUAGE:'English',SOCIALDATA_API_KEY:'',STILLFEED_NO_WORKER:'1',STILLFEED_DISABLE_SCHEDULE:'1',STILLFEED_COLLECT_COMMAND:`sleep 1 && : > '${collected}'`};
 const fixture=(...args)=>execFileSync(bun,[path.join(root,'tests/fixture.ts'),...args],{encoding:'utf8',env,cwd:temp});
 // SQLite reads and test-only writes go straight to the state database through bun:sqlite.
-const sql=(query,args=[])=>JSON.parse(execFileSync(bun,['-e','const {Database}=require("bun:sqlite"),d=new Database(Bun.argv[1]);d.exec("PRAGMA busy_timeout=5000");console.log(JSON.stringify(d.query(Bun.argv[2]).values(...JSON.parse(Bun.argv[3]))??[]))',path.join(state,'radar.db'),query,JSON.stringify(args)],{encoding:'utf8',env}));
+const sql=(query,args=[])=>JSON.parse(execFileSync(bun,['-e','const {Database}=require("bun:sqlite"),d=new Database(Bun.argv[1]);d.exec("PRAGMA busy_timeout=5000");console.log(JSON.stringify(d.query(Bun.argv[2]).values(...JSON.parse(Bun.argv[3]))??[]))',path.join(state,'stillfeed.db'),query,JSON.stringify(args)],{encoding:'utf8',env}));
 const created=JSON.parse(fixture('create',state));
 const port=21000+Math.floor(Math.random()*20000),base=`http://127.0.0.1:${port}`;
 const server=spawn(bun,[path.join(root,'src/server.ts'),'--state-dir',state,'--port',String(port)],{stdio:['ignore','ignore','inherit'],env,cwd:temp});
@@ -22,7 +22,7 @@ process.on('exit',()=>server.kill());
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let passed=0;const failures=[];
 function check(name,ok,detail=''){console.log(`${ok?'ok':'FAIL'} ${name} ${ok?'':detail}`);if(ok)passed++;else failures.push(name);}
-const request=async(url,value)=>{const r=await fetch(base+url,value===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Radar':'1'},body:JSON.stringify(value)});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;};
+const request=async(url,value)=>{const r=await fetch(base+url,value===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Stillfeed':'1'},body:JSON.stringify(value)});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;};
 const idOf=url=>createHash('sha256').update(url).digest('hex').slice(0,32);
 let browser;
 try{
@@ -42,8 +42,8 @@ try{
  check('formats actually match returned records',articles.items.every(a=>a.kind==='article')&&posts.items.every(a=>a.kind==='x'));
  const hidden=await request('/api/feed?scope=all&hideSeen=1');check('a new hidden-seen view excludes persisted seen rows',hidden.items.every(a=>!a.seen)&&hidden.total<first.total);
  const bad=await fetch(base+'/api/seen',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});check('writes require the request header',bad.status===400);
- const foreign=await fetch(base+'/api/seen',{method:'POST',headers:{'Content-Type':'application/json','X-Radar':'1',Origin:'https://foreign.example'},body:JSON.stringify({ids:[],seen:true})});check('foreign origins are rejected',foreign.status===400);
- const proxy=await fetch(base+'/api/seen',{method:'POST',headers:{'Content-Type':'application/json','X-Radar':'1',Origin:`https://127.0.0.1:${port}`},body:JSON.stringify({ids:[],seen:true})});check('same host behind TLS proxy can save seen',proxy.ok);
+ const foreign=await fetch(base+'/api/seen',{method:'POST',headers:{'Content-Type':'application/json','X-Stillfeed':'1',Origin:'https://foreign.example'},body:JSON.stringify({ids:[],seen:true})});check('foreign origins are rejected',foreign.status===400);
+ const proxy=await fetch(base+'/api/seen',{method:'POST',headers:{'Content-Type':'application/json','X-Stillfeed':'1',Origin:`https://127.0.0.1:${port}`},body:JSON.stringify({ids:[],seen:true})});check('same host behind TLS proxy can save seen',proxy.ok);
  check('old bulk JSON API is retired',(await fetch(base+'/data/latest-24h.json')).status===404);
  check('unknown image cannot turn into a proxy',(await fetch(base+'/api/image/00000000000000000000000000000000/preview')).status===404);
  const coldId=articles.items[0].id,started=Date.now();const cold=await fetch(base+`/api/article/${coldId}/content`);check('cold article requests queue preparation without blocking on a model',cold.status===202&&Date.now()-started<1000);check('opened articles get priority in the durable queue',sql('SELECT priority FROM reader_jobs WHERE article_id=?',[coldId])[0][0]===1000);
@@ -184,12 +184,12 @@ try{
     await p.route('**/api/seen',route=>route.abort());
     const offlineCard=p.locator('.feed-card.article:not(.seen)').first();await offlineCard.scrollIntoViewIfNeeded();const offlineId=await offlineCard.getAttribute('data-id');
     await offlineCard.locator('.article-link').click();await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
-    await p.waitForFunction(id=>JSON.parse(localStorage.getItem('radar-v2-outbox')||'{}')[id]===true,offlineId);
+    await p.waitForFunction(id=>JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id]===true,offlineId);
     check('failed seen save stays on the device',sql('SELECT COUNT(*) FROM seen WHERE article_id=?',[offlineId])[0][0]===0);
     await p.reload();await p.waitForSelector('.feed-card');await sleep(300);
-    check('offline seen state survives reload and the opened article stays out of the feed',await p.locator(`[data-id="${offlineId}"]`).count()===0&&await p.evaluate(id=>JSON.parse(localStorage.getItem('radar-v2-outbox')||'{}')[id]===true,offlineId));
+    check('offline seen state survives reload and the opened article stays out of the feed',await p.locator(`[data-id="${offlineId}"]`).count()===0&&await p.evaluate(id=>JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id]===true,offlineId));
     await p.unroute('**/api/seen');await p.evaluate(()=>window.dispatchEvent(new Event('online')));
-    await p.waitForFunction(id=>!JSON.parse(localStorage.getItem('radar-v2-outbox')||'{}')[id],offlineId);
+    await p.waitForFunction(id=>!JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id],offlineId);
     check('reconnection saves seen to the server',sql('SELECT COUNT(*) FROM seen WHERE article_id=?',[offlineId])[0][0]===1);
   }
   await p.evaluate(()=>scrollTo(0,0));await sleep(200);const room=await p.evaluate(()=>document.documentElement.scrollHeight-innerHeight);await p.evaluate(y=>scrollTo(0,y),Math.min(1500,room-200));await sleep(150);await p.evaluate(y=>scrollTo(0,y),Math.min(1600,room-100));await sleep(300);check(`${width}: top bar hides while scrolling down`,room>300&&await p.locator('.topbar-hidden').count()===1,`room ${room}`);
@@ -199,7 +199,7 @@ try{
     const seenNow=()=>sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1200);const unseenBefore=seenNow();await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();await p.getByRole('button',{name:'Cancel',exact:true}).click();await p.locator('#markAllConfirm').waitFor({state:'hidden'});await close();await sleep(300);check('mark all asks first and Cancel changes nothing',seenNow()===unseenBefore);
     // Cards on screen after Cancel became seen meanwhile; the baseline is taken while the confirmation covers the feed.
     await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();const seenBeforeMarkAll=seenNow();await p.getByRole('button',{name:'Mark as seen',exact:true}).click();await p.locator('#optionsSheet').waitFor({state:'hidden'});await p.getByRole('button',{name:'Undo',exact:true}).waitFor();
-    const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('radar-v2-preferences')));const remaining=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=1`);const toastText=await p.locator('.toast-title').innerText();const reported=Number(toastText.replace(/[^0-9]/g,''));
+    const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const remaining=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=1`);const toastText=await p.locator('.toast-title').innerText();const reported=Number(toastText.replace(/[^0-9]/g,''));
     check('mark all as seen covers the whole view, not just loaded cards',remaining.total===0&&reported>0&&seenNow()-seenBeforeMarkAll>=reported&&await p.locator('#feed .feed-card:not(.seen)').count()===0,`${remaining.total} left, ${toastText}, diff ${seenNow()-seenBeforeMarkAll}, unseen cards ${await p.locator('#feed .feed-card:not(.seen)').count()}`);
     const marked=seenNow();await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#feed .feed-card:not(.seen)').length>0);
     const restored=seenNow();check('Undo restores exactly the rows mark-all changed',restored===seenBeforeMarkAll&&marked>seenBeforeMarkAll,`${seenBeforeMarkAll} before, ${marked} marked, ${restored} after Undo`);
@@ -218,7 +218,8 @@ try{
     await sleep(1500);await p.reload();await p.locator('#hot .hot-item').first().waitFor();check('Hot items do not leave by being on screen or after a reload',await p.locator('#hot .hot-item').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
     const dismissed=p.waitForResponse(r=>/\/api\/article\/[a-f0-9]{32}\/hot$/.test(r.url())&&r.request().method()==='POST');await p.locator('#hot .card-note-dismiss').first().click();await dismissed;await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===1);check('dismissing removes a Hot item for good',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===1);
     await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===2);check('Undo brings a dismissed Hot item back',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===0);
-    await p.locator('#hot .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
+    const openedPost=p.waitForResponse(r=>/\/api\/article\/[a-f0-9]{32}\/opened$/.test(r.url())&&r.request().method()==='POST');
+    await p.locator('#hot .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await openedPost;await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
     check('opening a Hot item takes it off the list and returns to Hot',await p.locator('#hot .hot-item').count()===1&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true'&&sql('SELECT COUNT(*) FROM opened WHERE article_id=?',[picks[0]])[0][0]===1);
     await p.locator('#viewFeed').click();await p.locator('#feedView').waitFor({state:'visible'});
   }
@@ -231,14 +232,14 @@ try{
     check('Add follows the suggested account and the suggestion does not come back',sql("SELECT enabled FROM x_accounts WHERE handle='newtooldev'")[0]?.[0]===1&&sql("SELECT status FROM suggestions WHERE id=?",['f'.repeat(32)])[0][0]==='added');
     await close();
   }
-  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('radar-v2-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
+  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
     check('the top bar shows unseen / all for the current view',/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(bubble.replace(/\s+/g,' ').trim())&&Number(bubble.split('/')[1].replace(/\D/g,''))>0,bubble);}
   const xArticle=idOf(created.xArticle),quoted=idOf(created.quote);
   await p.goto(`${base}/post/${xArticle}`);await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: an X Article shows as an article card in its post`,await p.locator('#readingContent .x-article b').innerText()==='Agents in production');
   await p.goto(`${base}/post/${quoted}`);await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: a quote shows the quoted post`,(await p.locator('#readingContent .quote').innerText()).includes('Evals are product specs you can run.'));
   await p.goto(base);await p.waitForSelector('.feed-card');
   check(`${width}: no browser errors`,errors.length===0,errors.join(' | '));
-  if(width===390){await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:path.join(tmpdir(),'radar-ui-phone.png')});await open();await p.screenshot({path:path.join(tmpdir(),'radar-ui-options.png')});await close();}
+  if(width===390){await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:path.join(tmpdir(),'stillfeed-ui-phone.png')});await open();await p.screenshot({path:path.join(tmpdir(),'stillfeed-ui-options.png')});await close();}
   await ctx.close();
  }
  console.log(JSON.stringify({passed,failed:failures.length,coverage:{expected:expected.size,actual:actual.length,missing:[...expected].filter(u=>!actual.includes(u)).length},failures},null,2));if(failures.length)process.exitCode=1;

@@ -8,7 +8,7 @@ export function parseSummary(raw:string):string[]{
  if(!Array.isArray(value.points)||value.points.length!==3||!value.points.every((p:unknown)=>typeof p==='string'&&p.trim().length>0&&p.length<=320))throw new Error('The summary could not be generated. Please try again.');
  return value.points.map((p:string)=>p.trim());
 }
-/** A summary belongs to one text and one language; changing RADAR_LANGUAGE writes new ones. */
+/** A summary belongs to one text and one language; changing STILLFEED_LANGUAGE writes new ones. */
 export class Summaries {
  constructor(private store:Store){
   store.db.exec('CREATE TABLE IF NOT EXISTS article_summaries(article_id TEXT PRIMARY KEY REFERENCES articles(id),content_hash TEXT NOT NULL,points TEXT NOT NULL,generated_at INTEGER NOT NULL,model TEXT NOT NULL DEFAULT "legacy",language TEXT NOT NULL DEFAULT "Czech")');

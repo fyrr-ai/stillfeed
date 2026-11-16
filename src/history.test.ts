@@ -8,7 +8,7 @@ import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 test('retention keeps Saved content, summaries and active batches, with a complete pre-cleanup backup',()=>{
- const directory=mkdtempSync(join(tmpdir(),'radar-history-')),store=new Store(directory),now=Date.now();
+ const directory=mkdtempSync(join(tmpdir(),'stillfeed-history-')),store=new Store(directory),now=Date.now();
  try{
   store.ingest(['saved','expired','active','recent'].map(name=>({url:'https://example.com/'+name,title:name,source:'Example',ai_is_related:true,published_at:new Date(now-(name==='recent'?0:40)*86400000).toISOString()})),new Date(now).toISOString());
   const rows=store.db.query('SELECT id,title FROM articles').all() as {id:string;title:string}[],ids=Object.fromEntries(rows.map(r=>[r.title,r.id]));

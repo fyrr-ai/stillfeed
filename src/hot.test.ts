@@ -6,7 +6,7 @@ import {Store} from './store';
 import {Hot,parsePicks,type Candidate} from './hot';
 
 function seeded(){
-  const dir=mkdtempSync(join(tmpdir(),'radar-hot-')),store=new Store(dir),now=Date.now();
+  const dir=mkdtempSync(join(tmpdir(),'stillfeed-hot-')),store=new Store(dir),now=Date.now();
   store.db.query("INSERT INTO sources(id,name) VALUES('s1','Feed one'),('s2','Feed two')").run();
   const add=(id:string,ai:number,age:number,sources:string[])=>{
     store.db.query('INSERT INTO articles(id,url,title,source,host,kind,sort_at,ai,tweet,created_revision,last_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id,`https://example.com/${id}`,`Title ${id}`,'Feed one','example.com','article',now-age*3600000,ai,null,1,1);

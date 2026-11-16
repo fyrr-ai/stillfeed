@@ -19,7 +19,7 @@ test('only unmatched, non-CJK items from feeds and X are candidates', () => {
 });
 
 test('cached decisions apply without a model call', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'radar-triage-')), store = new Store(dir);
+  const dir = mkdtempSync(join(tmpdir(), 'stillfeed-triage-')), store = new Store(dir);
   try {
     store.db.query('INSERT INTO model_decisions VALUES(?,?,?)').run('keep', 1, Date.now() / 1000);
     store.db.query('INSERT INTO model_decisions VALUES(?,?,?)').run('old-drop', 0, 1);

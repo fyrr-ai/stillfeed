@@ -18,7 +18,7 @@
   "private": true,
   "scripts": {
     "start": "bun src/server.ts",
-    "dev": "RADAR_HOME=./.dev bun --watch src/server.ts",
+    "dev": "STILLFEED_HOME=./.dev bun --watch src/server.ts",
     "build": "bun build ui/main.tsx --target browser --minify --define process.env.NODE_ENV='\"production\"' --outfile assets/main.js",
     "check": "tsc --noEmit",
     "test": "bun test src",
@@ -32,6 +32,6 @@
     "@types/sanitize-html": "^2.16.2",
     "typescript": "^7.0.2"
   },
-  "name": "radar",
+  "name": "stillfeed",
   "license": "MIT"
 }

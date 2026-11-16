@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-/** Everything Radar stores lives under RADAR_HOME (default ~/.local/share/radar); each path can be overridden. */
+/** Everything Stillfeed stores lives under STILLFEED_HOME (default ~/.local/share/stillfeed); each path can be overridden. */
 export const app = resolve(import.meta.dir, '..');
-const home = process.env.RADAR_HOME || join(process.env.XDG_DATA_HOME || join(process.env.HOME || '.', '.local/share'), 'radar');
+const home = process.env.STILLFEED_HOME || join(process.env.XDG_DATA_HOME || join(process.env.HOME || '.', '.local/share'), 'stillfeed');
 
-/** KEY=value lines from RADAR_HOME/.env and ./.env; real environment variables always win. */
+/** KEY=value lines from STILLFEED_HOME/.env and ./.env; real environment variables always win. */
 export function loadEnv(files = [join(home, '.env'), join(process.cwd(), '.env')]) {
   for (const file of files) {
     if (!existsSync(file)) continue;
@@ -22,14 +22,14 @@ loadEnv();
 const env = (key: string, fallback: string) => process.env[key] || fallback;
 export const config = {
   home,
-  state: env('RADAR_STATE_DIR', join(home, 'state')),
-  hostname: env('RADAR_HOSTNAME', '127.0.0.1'),
-  port: Number(env('RADAR_PORT', '3200')),
+  state: env('STILLFEED_STATE_DIR', join(home, 'state')),
+  hostname: env('STILLFEED_HOSTNAME', '127.0.0.1'),
+  port: Number(env('STILLFEED_PORT', '3200')),
   /** Plain-language description of what the reader cares about; Hot, suggestions and triage read it. */
-  interests: env('RADAR_INTERESTS', join(home, 'interests.md')),
+  interests: env('STILLFEED_INTERESTS', join(home, 'interests.md')),
   /** Extra feeds (OPML) and X accounts (one handle per line) the user adds on top of the defaults. */
-  feeds: env('RADAR_FEEDS', join(home, 'feeds.opml')),
-  xAccounts: env('RADAR_X_ACCOUNTS', join(home, 'x-accounts.txt')),
+  feeds: env('STILLFEED_FEEDS', join(home, 'feeds.opml')),
+  xAccounts: env('STILLFEED_X_ACCOUNTS', join(home, 'x-accounts.txt')),
   /** Language of AI summaries, Hot reasons and suggestion reasons, e.g. "English", "Czech", "German". */
-  language: env('RADAR_LANGUAGE', 'English'),
+  language: env('STILLFEED_LANGUAGE', 'English'),
 };

@@ -214,7 +214,7 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
   const preparation = status.preparation;
 
   return <>
-    <header className="side-head"><DrawerTitle className="side-title"><Icon name="radar" size={18} />{t('settings.title')}</DrawerTitle><DrawerClose className="icon-button" aria-label={t('options.close')}><Icon name="close" /></DrawerClose></header>
+    <header className="side-head"><DrawerTitle className="side-title">{t('settings.title')}</DrawerTitle><DrawerClose className="icon-button" aria-label={t('options.close')}><Icon name="close" /></DrawerClose></header>
     <div className="side-body">
       <InputGroup className="side-search">
         <Icon name="search" size={16} />

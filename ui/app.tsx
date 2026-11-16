@@ -16,7 +16,7 @@ import {
 
 const detailPath = /^\/(article|post)\/([a-f0-9]{32})$/;
 type Hint = { label: string; opacity: number; mode: 'back' | 'pull' } | null;
-const SETUP_DISMISSED = 'radar-v2-setup-dismissed';
+const SETUP_DISMISSED = 'stillfeed-setup-dismissed';
 
 /** The gesture pill re-renders on every touch move, so it owns its state instead of the whole app. */
 let showHint: (hint: Hint) => void = () => {};
@@ -67,7 +67,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState(prefs.q);
   const [headerHidden, setHeaderHidden] = useState(false);
-  const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('radar-v2-tab') === 'hot' && !detailPath.test(location.pathname));
+  const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && !detailPath.test(location.pathname));
   const [hot, setHot] = useState<HotItem[]>([]);
   const [hotLoading, setHotLoading] = useState(true);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
@@ -115,7 +115,7 @@ export function App() {
   function mark(id: string, on: boolean) {
     const article = r.items.find(a => a.id === id) ?? (r.route?.article?.id === id ? r.route.article : undefined);
     if (article?.seen === on) return;
-    r.outbox[id] = on; localStorage.setItem('radar-v2-outbox', JSON.stringify(r.outbox));
+    r.outbox[id] = on; localStorage.setItem('stillfeed-outbox', JSON.stringify(r.outbox));
     if (article && r.items.some(a => a.id === id)) setUnseen(n => Math.max(0, n + (on ? -1 : 1)));
     patchArticle(id, { seen: on }); void flush();
   }
@@ -128,7 +128,7 @@ export function App() {
         if (!ids.length) continue;
         await api('/api/seen', { ids, seen: on });
         ids.forEach(id => { if (r.outbox[id] === on) delete r.outbox[id]; });
-        localStorage.setItem('radar-v2-outbox', JSON.stringify(r.outbox));
+        localStorage.setItem('stillfeed-outbox', JSON.stringify(r.outbox));
       }
       setSyncFailed(false);
     } catch { setSyncFailed(true); }
@@ -141,8 +141,8 @@ export function App() {
     if (!r.feed || r.restoring || r.failedNewView || r.route) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
     const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), collapsed: [...r.collapsed] };
-    sessionStorage.setItem('radar-v2-session', JSON.stringify(data));
-    sessionStorage.setItem('radar-v2-session-' + r.prefs.view, JSON.stringify(data));
+    sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
+    sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
 
   async function getPage(append: boolean, restore?: { batch: string; offset: number }) {
@@ -221,7 +221,7 @@ export function App() {
   async function switchView(view: 'feed' | 'saved') {
     if (view === r.prefs.view) return;
     save();
-    const saved = loadSession('radar-v2-session-' + view);
+    const saved = loadSession('stillfeed-session-' + view);
     setPrefs(saved ? { ...saved.preferences, view } : { ...defaults, view }); setFeed(null);
     await loadView(saved, view === 'saved'); await refreshStatus();
   }
@@ -234,7 +234,7 @@ export function App() {
   function setHotOpen(open: boolean) {
     if (open === r.hotOpen) return;
     if (open) { save(); r.feedScroll = scrollY; unwatch(); }
-    r.hotOpen = open; sessionStorage.setItem('radar-v2-tab', open ? 'hot' : 'feed');
+    r.hotOpen = open; sessionStorage.setItem('stillfeed-tab', open ? 'hot' : 'feed');
     flushSync(() => setHotOpenState(open));
     if (open) { window.scrollTo(0, 0); void loadHot(); } else { window.scrollTo(0, r.feedScroll); watch(); }
   }
@@ -299,7 +299,7 @@ export function App() {
     setBusy(set => new Set(set).add(article.id)); setNotice('');
     try {
       await api(`/api/article/${article.id}/saved`, { saved: on });
-      sessionStorage.removeItem('radar-v2-session-saved');
+      sessionStorage.removeItem('stillfeed-session-saved');
       patchArticle(article.id, { saved: on });
       // One toast at a time: a newer action replaces the previous Undo.
       toaster.dismiss();
@@ -317,7 +317,7 @@ export function App() {
     try {
       const { ids } = await api<{ ids: string[] }>('/api/seen-batch', { batch: r.feed.batch });
       const changed = new Set(ids);
-      ids.forEach(id => { delete r.outbox[id]; }); localStorage.setItem('radar-v2-outbox', JSON.stringify(r.outbox));
+      ids.forEach(id => { delete r.outbox[id]; }); localStorage.setItem('stillfeed-outbox', JSON.stringify(r.outbox));
       // Every row of the batch is seen on the server now, including rows this device had not caught up on.
       setItems(r.items.map(a => a.seen ? a : { ...a, seen: true })); setUnseen(0);
       if (r.prefs.hideSeen) { setFeed(null); await getPage(false).catch(() => {}); }
@@ -436,7 +436,7 @@ export function App() {
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
         void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); });
         // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
-        await loadView(loadSession('radar-v2-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
+        await loadView(loadSession('stillfeed-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
         void loadHot();
         await refreshStatus(); void flush(); save(); await followRoute();
       } catch (error) { setMessage(error instanceof Error ? error.message : t('error.open')); setBooting(false); }

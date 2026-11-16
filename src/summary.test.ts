@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 const reading={title:'Example',author:'',url:'https://example.com/article',html:'<p>Article</p>',text:'Article text',fetchedAt:1};
 const points=['Nový model.','Důležité změny.','Otevřený zdroj.'];
-function fixture(count=1){const directory=mkdtempSync(join(tmpdir(),'radar-preparation-')),store=new Store(directory);store.ingest(Array.from({length:count},(_,n)=>({url:`https://example.com/${n}`,title:`Example ${n}`,source:'Example',published_at:new Date(Date.now()-n*1000).toISOString(),ai_is_related:true})),new Date(Date.now()+1000).toISOString());return {store,done(){store.close();rmSync(directory,{recursive:true,force:true});}};}
+function fixture(count=1){const directory=mkdtempSync(join(tmpdir(),'stillfeed-preparation-')),store=new Store(directory);store.ingest(Array.from({length:count},(_,n)=>({url:`https://example.com/${n}`,title:`Example ${n}`,source:'Example',published_at:new Date(Date.now()-n*1000).toISOString(),ai_is_related:true})),new Date(Date.now()+1000).toISOString());return {store,done(){store.close();rmSync(directory,{recursive:true,force:true});}};}
 test('summary cache follows article content and records the actual model',()=>{
  const f=fixture();try{const cache=new Summaries(f.store),id=(f.store.db.query('SELECT id FROM articles').get() as {id:string}).id;
  expect(cache.cached(id,reading)).toBeNull();cache.save(id,reading,points,'test-model');expect(cache.cached(id,reading)?.points).toEqual(points);expect(cache.cached(id,reading)?.model).toBe('test-model');expect(cache.cached(id,{...reading,text:'Changed'})).toBeNull();expect(()=>cache.save(id,reading,['Invalid'])).toThrow();expect(cache.cached(id,reading)?.points).toEqual(points);expect(()=>parseSummary('not JSON')).toThrow();
@@ -31,10 +31,10 @@ test('failed downloads and malformed model output stay retryable without a fake 
  }finally{f.done();}
 });
 test('a summary belongs to the language it was written in',()=>{
- const f=fixture(),previous=process.env.RADAR_LANGUAGE;try{const cache=new Summaries(f.store),id=(f.store.db.query('SELECT id FROM articles').get() as {id:string}).id;
- process.env.RADAR_LANGUAGE='Czech';cache.save(id,reading,points,'m');expect(cache.cached(id,reading)?.language).toBe('Czech');
- process.env.RADAR_LANGUAGE='German';expect(cache.cached(id,reading)).toBeNull();
- }finally{if(previous===undefined)delete process.env.RADAR_LANGUAGE;else process.env.RADAR_LANGUAGE=previous;f.done();}
+ const f=fixture(),previous=process.env.STILLFEED_LANGUAGE;try{const cache=new Summaries(f.store),id=(f.store.db.query('SELECT id FROM articles').get() as {id:string}).id;
+ process.env.STILLFEED_LANGUAGE='Czech';cache.save(id,reading,points,'m');expect(cache.cached(id,reading)?.language).toBe('Czech');
+ process.env.STILLFEED_LANGUAGE='German';expect(cache.cached(id,reading)).toBeNull();
+ }finally{if(previous===undefined)delete process.env.STILLFEED_LANGUAGE;else process.env.STILLFEED_LANGUAGE=previous;f.done();}
 });
 test('without an AI provider articles are still prepared, just without summaries',async()=>{
  const f=fixture(2);try{const queue=new Preparation(f.store),cache=new Summaries(f.store);queue.enqueueCurrent();

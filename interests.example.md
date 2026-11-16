@@ -1,8 +1,8 @@
 # What I care about
 
-Radar's AI reads this file when it picks the Hot tab (the few things you should not miss) and when it
+Stillfeed's AI reads this file when it picks the Hot tab (the few things you should not miss) and when it
 suggests new sources. Write freely, in any language. Changes apply from the next refresh.
-Copy it to ~/.local/share/radar/interests.md (or set RADAR_INTERESTS) and make it yours.
+Copy it to ~/.local/share/stillfeed/interests.md (or set STILLFEED_INTERESTS) and make it yours.
 
 ## Tell me right away
 - New models and major versions from OpenAI, Anthropic, Google, Meta, Mistral and DeepSeek.

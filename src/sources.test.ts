@@ -8,7 +8,7 @@ import { accounts, addSource, findFeed, list, removeSource, seedAccounts, seedOp
 const opml = `<?xml version="1.0"?><opml version="2.0"><body><outline text="AI"><outline text="Simon Willison" title="Simon Willison" type="rss" xmlUrl="https://simonwillison.net/atom/everything/" ai="1"/><outline text="Blog" xmlUrl="https://blog.example.com/feed"/></outline></body></opml>`;
 const rss = `<?xml version="1.0"?><rss version="2.0"><channel><title>Example &amp; Co</title><item><title>Hello</title><link>https://blog.example.com/hello</link><pubDate>Mon, 16 Nov 2026 07:00:00 GMT</pubDate></item></channel></rss>`;
 const page = `<html><head><link rel="alternate" type="application/rss+xml" href="/rss.xml"></head><body>Blog</body></html>`;
-function fixture() { const dir = mkdtempSync(join(tmpdir(), 'radar-sources-')), store = new Store(dir); return { store, done() { store.close(); rmSync(dir, { recursive: true, force: true }); } }; }
+function fixture() { const dir = mkdtempSync(join(tmpdir(), 'stillfeed-sources-')), store = new Store(dir); return { store, done() { store.close(); rmSync(dir, { recursive: true, force: true }); } }; }
 const site = (files: Record<string, string>) => (async (url: string) => {
   const body = files[url]; if (body === undefined) throw new Error('Source returned HTTP 404');
   return { url, type: 'text/html', bytes: new TextEncoder().encode(body), status: 200, headers: new Headers() };

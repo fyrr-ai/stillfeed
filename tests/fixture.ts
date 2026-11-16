@@ -1,5 +1,5 @@
-// Synthetic Radar state for the browser suite (tests/ui.mjs): no network, no real Radar home.
-//   bun tests/fixture.ts create <state-dir>                      fresh radar.db; prints {generatedAt,urls,xArticle,quote}
+// Synthetic Stillfeed state for the browser suite (tests/ui.mjs): no network, no real Stillfeed home.
+//   bun tests/fixture.ts create <state-dir>                      fresh stillfeed.db; prints {generatedAt,urls,xArticle,quote}
 //   bun tests/fixture.ts add <state-dir> <generatedAt> <records>  ingests more records (a JSON array), like a collection
 import { Store, canonical, type RecordData } from '../src/store';
 import { Reader } from '../src/reader';
@@ -42,7 +42,7 @@ function records(generatedAt: number): RecordData[] {
       // Post 50 carries an X Article, post 59 quotes another account; the rest are plain posts with a link.
       record = i === 50 ? post(i, at, { full_text: `Wrote up how we run agents in production https://t.co/art${i}`,
         entities: { urls: [{ url: `https://t.co/art${i}`, expanded_url: `https://x.com/i/article/77${i}`, display_url: `x.com/i/article/77${i}` }] },
-        radar_article: { title: 'Agents in production', preview: 'What broke, what held, and what we would do again.', image: '', url: `https://x.com/i/article/77${i}` } })
+        stillfeed_article: { title: 'Agents in production', preview: 'What broke, what held, and what we would do again.', image: '', url: `https://x.com/i/article/77${i}` } })
         : i === 59 ? post(i, at, { full_text: 'This is the clearest take on evals I have read.', quoted_status_id_str: '1800000000000000059',
           quoted_status: { id_str: '1800000000000000059', full_text: 'Evals are product specs you can run.', user: { screen_name: 'evalqueen', name: 'Eval Queen' } } })
         : post(i, at);

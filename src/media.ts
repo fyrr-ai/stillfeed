@@ -20,7 +20,7 @@ export async function download(value:string,limit:number,conditional:Record<stri
   let url=value;
   for(let hop=0;hop<5;hop++) {
     await publicURL(url);
-    const response=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(10000),headers:{'User-Agent':'Mozilla/5.0 (compatible; Radar/2.0)',...conditional}});
+    const response=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(10000),headers:{'User-Agent':'Mozilla/5.0 (compatible; Stillfeed/1.0)',...conditional}});
     if([301,302,303,307,308].includes(response.status)&&response.headers.has('location')) {await response.body?.cancel();url=new URL(response.headers.get('location')!,url).href;continue;}
     if(response.status===304)return {url,type:'',bytes:new Uint8Array(),status:304,headers:response.headers};
     if(!response.ok){await response.body?.cancel();throw new Error(`Source returned HTTP ${response.status}`);}

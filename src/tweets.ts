@@ -106,7 +106,7 @@ export function toRecord(raw:unknown):TweetRecord|null{
   const record:TweetRecord={id,handle,text,published,author:author.handle||handle,name:author.name,avatar:author.avatar,
     kind:reposted?'retweet':quoted?'quote':'tweet',likes:shown.favorite_count??null,replies:shown.reply_count??null,
     reposts:shown.retweet_count??null,views:shown.views_count??null,media:photos(shown),links,drop};
-  const article=dict(shown.radar_article);
+  const article=dict(shown.stillfeed_article);
   if(article&&truthy(article.title)){
     record.article=article;
     // The card replaces the bare https://t.co link to the article.

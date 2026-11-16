@@ -13,7 +13,7 @@ import {toRecord} from './tweets';
 import {triage} from './triage';
 import {channelVideos} from './youtube';
 type Feed={id:string;url:string;title:string;source_id:string;ai:number;etag:string|null;last_modified:string|null};
-/** Default feeds and channels ship with Radar; the reader's own feeds.opml and x-accounts.txt add to them.
+/** Default feeds and channels ship with Stillfeed; the reader's own feeds.opml and x-accounts.txt add to them.
  *  Each entry is added once, so removing or switching off a source in the sidebar sticks. */
 export async function seed(store:Store,app:string){
   const text=async(path:string)=>{const file=Bun.file(path);return await file.exists()?file.text():'';};
@@ -118,11 +118,11 @@ export async function xArticle(raw:unknown){
   if(!linked||!/^\d+$/.test(id))return;
   try{
     const token=((Number(id)/1e15)*Math.PI).toString(36).replace(/(0+|\.)/g,'');
-    const response=await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&token=${token}&lang=en`,{signal:AbortSignal.timeout(8000),headers:{'User-Agent':'Mozilla/5.0 (compatible; Radar/2.0)'}});
+    const response=await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&token=${token}&lang=en`,{signal:AbortSignal.timeout(8000),headers:{'User-Agent':'Mozilla/5.0 (compatible; Stillfeed/1.0)'}});
     if(!response.ok)return;
     const article=(await response.json() as Record<string,any>)?.article;
     if(!article?.title)return;
-    shown.radar_article={title:String(article.title).slice(0,300),preview:String(article.preview_text??'').slice(0,600),image:String(article.cover_media?.media_info?.original_img_url??''),url:`https://x.com/i/article/${String(article.rest_id??'')}`};
+    shown.stillfeed_article={title:String(article.title).slice(0,300),preview:String(article.preview_text??'').slice(0,600),image:String(article.cover_media?.media_info?.original_img_url??''),url:`https://x.com/i/article/${String(article.rest_id??'')}`};
   }catch{/* the tweet still shows its link */}
 }
 

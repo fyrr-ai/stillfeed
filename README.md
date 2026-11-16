@@ -1,6 +1,6 @@
-# Radar
+# Stillfeed
 
-A personal, self-hosted reader for AI and data-engineering news. Radar collects articles, YouTube videos and
+A personal, self-hosted reader for AI and data-engineering news. Stillfeed collects articles, YouTube videos and
 X posts from the sources you follow into one quiet, phone-friendly timeline, keeps only what is relevant, and
 lets an AI summarize what you open, in your language.
 
@@ -24,51 +24,51 @@ lets an AI summarize what you open, in your language.
 Requires [Bun](https://bun.sh) 1.4 or newer.
 
 ```sh
-git clone https://github.com/<you>/radar && cd radar
+git clone https://github.com/<you>/stillfeed && cd stillfeed
 bun install --frozen-lockfile
 cp .env.example .env        # optional: add an AI key, pick a summary language
 bun start                   # http://127.0.0.1:3200
 ```
 
-The first collection starts on its own; afterwards Radar refreshes every two hours (configurable, with an
+The first collection starts on its own; afterwards Stillfeed refreshes every two hours (configurable, with an
 optional night pause) and you can pull to refresh at any time. Open it on your phone through your own
-reverse proxy, Tailscale or SSH tunnel; Radar has no login, so do not expose it to the internet directly.
+reverse proxy, Tailscale or SSH tunnel; Stillfeed has no login, so do not expose it to the internet directly.
 
 With Docker:
 
 ```sh
-docker build -t radar .
-docker run -d -p 127.0.0.1:3200:3200 -v radar:/data --env-file .env radar
+docker build -t stillfeed .
+docker run -d -p 127.0.0.1:3200:3200 -v stillfeed:/data --env-file .env stillfeed
 ```
 
 ## Configuration
 
-Everything is optional. Settings come from environment variables or a `.env` file in `RADAR_HOME`
-(default `~/.local/share/radar`) or the working directory; see [.env.example](.env.example).
+Everything is optional. Settings come from environment variables or a `.env` file in `STILLFEED_HOME`
+(default `~/.local/share/stillfeed`) or the working directory; see [.env.example](.env.example).
 
 ### AI provider
 
 | Provider | Set | Default model |
 |---|---|---|
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
-| OpenAI or any OpenAI-compatible server (OpenRouter, Ollama, vLLM, LM Studio) | `OPENAI_API_KEY`, `RADAR_LLM_MODEL`, optionally `OPENAI_BASE_URL` | none, set one |
-| [Codex CLI](https://github.com/openai/codex) (uses your ChatGPT plan) | `RADAR_LLM=codex` | `gpt-6-luna` |
+| OpenAI or any OpenAI-compatible server (OpenRouter, Ollama, vLLM, LM Studio) | `OPENAI_API_KEY`, `STILLFEED_LLM_MODEL`, optionally `OPENAI_BASE_URL` | none, set one |
+| [Codex CLI](https://github.com/openai/codex) (uses your ChatGPT plan) | `STILLFEED_LLM=codex` | `gpt-6-luna` |
 
-`RADAR_LLM_MODEL` chooses the model for summaries, Hot and suggestions, and `RADAR_LLM_FAST_MODEL` the one
+`STILLFEED_LLM_MODEL` chooses the model for summaries, Hot and suggestions, and `STILLFEED_LLM_FAST_MODEL` the one
 for the relevance triage, which runs on every refresh (for example `claude-haiku-5-5` to keep it cheap). With
-Anthropic models that support it, Radar opts into the API's server-side fallback, so a request the model
-declines is retried on a fallback model in the same call. Without any provider Radar still collects, filters
+Anthropic models that support it, Stillfeed opts into the API's server-side fallback, so a request the model
+declines is retried on a fallback model in the same call. Without any provider Stillfeed still collects, filters
 by keywords and shows articles; summaries, Hot and suggestions stay off.
 
 ### Summary language
 
-`RADAR_LANGUAGE` sets the language of summaries, Hot reasons and suggestion reasons, for example `Czech`,
+`STILLFEED_LANGUAGE` sets the language of summaries, Hot reasons and suggestion reasons, for example `Czech`,
 `German` or `Japanese` (default `English`). The interface itself is English and ready for translation
 (`ui/i18n.ts`).
 
 ### Your interests
 
-Copy [interests.example.md](interests.example.md) to `~/.local/share/radar/interests.md` and describe what
+Copy [interests.example.md](interests.example.md) to `~/.local/share/stillfeed/interests.md` and describe what
 you care about in your own words. Hot and the source suggestions read it on each refresh.
 
 ### Sources
@@ -76,8 +76,8 @@ you care about in your own words. Hot and the source suggestions read it on each
 - Default feeds: [feeds/follow.opml](feeds/follow.opml) and YouTube channels in
   [feeds/channels.json](feeds/channels.json). Feeds marked `ai="1"` are trusted as AI sources; others go
   through the relevance filter.
-- Your own feeds: add them in the sidebar, or put an OPML file at `~/.local/share/radar/feeds.opml`.
-- X accounts: add handles in the sidebar or one per line in `~/.local/share/radar/x-accounts.txt`. X needs a
+- Your own feeds: add them in the sidebar, or put an OPML file at `~/.local/share/stillfeed/feeds.opml`.
+- X accounts: add handles in the sidebar or one per line in `~/.local/share/stillfeed/x-accounts.txt`. X needs a
   [SocialData](https://socialdata.tools) key (`SOCIALDATA_API_KEY`); following ~150 accounts costs about
   $3 a month.
 

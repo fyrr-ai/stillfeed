@@ -6,7 +6,7 @@ import {Store} from './store';
 import {Suggestions,parseRatings} from './suggest';
 
 function seeded(){
-  const dir=mkdtempSync(join(tmpdir(),'radar-suggest-')),store=new Store(dir),now=Date.now();
+  const dir=mkdtempSync(join(tmpdir(),'stillfeed-suggest-')),store=new Store(dir),now=Date.now();
   store.db.exec("CREATE TABLE IF NOT EXISTS x_accounts(handle TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1)");
   store.db.query("INSERT INTO x_accounts(handle,name) VALUES('alice','Alice'),('bob','Bob'),('carol','Carol')").run();
   store.db.query("INSERT INTO sources(id,name) VALUES('s1','Known blog')").run();

@@ -7,7 +7,7 @@ import type {Store} from './store';
 import {transcript as captions} from './youtube';
 export type Reading={title:string;author:string;html:string;text:string;url:string;fetchedAt:number};
 const sanitizeOptions:sanitize.IOptions={allowedTags:[...sanitize.defaults.allowedTags,'img','figure','figcaption'],allowedAttributes:{a:['href','title','target','rel'],img:['src','alt','width','height','loading','referrerpolicy'], '*':['lang','dir']},allowedSchemes:['https','http'],transformTags:{a:(_tag,attrs)=>({tagName:'a',attribs:{...attrs,target:'_blank',rel:'noopener noreferrer'}}),img:(_tag,attrs)=>({tagName:'img',attribs:{...attrs,loading:'lazy',referrerpolicy:'no-referrer'}})}};
-/** Articles and X posts that carry an X Article can be read in Radar. */
+/** Articles and X posts that carry an X Article can be read in Stillfeed. */
 export function readable(article:Record<string,unknown>|null):boolean{
   if(!article)return false;if(article.kind!=='x')return true;
   try{return Boolean(JSON.parse(String(article.tweet||'{}'))?.article?.title);}catch{return false;}

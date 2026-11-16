@@ -37,13 +37,13 @@ const integer=(value:string|null,fallback:number,min:number,max:number)=>{
 let collecting:Subprocess|null=null,lastCollection:'idle'|'failed'='idle';
 function startCollection(){
   if(collecting)return;
-  const command=process.env.RADAR_COLLECT_COMMAND?['sh','-c',process.env.RADAR_COLLECT_COMMAND]:[process.execPath,join(app,'src/server.ts'),'--state-dir',directory,'--collect'];
+  const command=process.env.STILLFEED_COLLECT_COMMAND?['sh','-c',process.env.STILLFEED_COLLECT_COMMAND]:[process.execPath,join(app,'src/server.ts'),'--state-dir',directory,'--collect'];
   collecting=Bun.spawn(command,{stdout:'inherit',stderr:'inherit',env:process.env});
   void collecting.exited.then(code=>{lastCollection=code===0?'idle':'failed';collecting=null;});
 }
 const refreshState=async()=>collecting?'running':lastCollection;
 async function body(request:Request) {
-  if(request.headers.get('X-Radar')!=='1'||!request.headers.get('Content-Type')?.startsWith('application/json'))throw new Error('Write requires JSON and X-Radar');
+  if(request.headers.get('X-Stillfeed')!=='1'||!request.headers.get('Content-Type')?.startsWith('application/json'))throw new Error('Write requires JSON and X-Stillfeed');
   const origin=request.headers.get('Origin');if(origin&&new URL(origin).host!==new URL(request.url).host)throw new Error('Foreign origin');
   const text=await request.text();if(text.length>256000)throw new Error('Request too large');
   const value=JSON.parse(text);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Expected object');return value;
@@ -56,7 +56,7 @@ export function nextRefresh(every:number,nightPause:boolean,now=new Date()){
 }
 let timer:ReturnType<typeof setTimeout>|undefined;
 function schedule(){
-  if(process.env.RADAR_DISABLE_SCHEDULE==='1')return;
+  if(process.env.STILLFEED_DISABLE_SCHEDULE==='1')return;
   clearTimeout(timer);
   const {refreshEvery,nightPause}=store.settings(),at=nextRefresh(refreshEvery,nightPause);
   timer=setTimeout(()=>{startCollection();schedule();},Math.max(1000,at.getTime()-Date.now()));
@@ -170,17 +170,17 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
     }
     return response;
   }});
-console.log(`Radar ready on http://${server.hostname}:${server.port}`);
+console.log(`Stillfeed ready on http://${server.hostname}:${server.port}`);
 // The reader worker prepares articles and summaries in the background; it is restarted if it stops.
 let worker:Subprocess|null=null,stopping=false;
 function startWorker(){
-  if(process.env.RADAR_NO_WORKER==='1'||stopping)return;
+  if(process.env.STILLFEED_NO_WORKER==='1'||stopping)return;
   worker=Bun.spawn([process.execPath,join(app,'src/reader_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
   void worker.exited.then(()=>{worker=null;if(!stopping)setTimeout(startWorker,5000);});
 }
 startWorker();
 schedule();
-// A refresh missed while Radar was not running (the last one is older than the interval) happens now.
-if(process.env.RADAR_DISABLE_SCHEDULE!=='1'&&Date.now()-Date.parse(store.meta('generatedAt')||'0')>store.settings().refreshEvery*3600000)startCollection();
+// A refresh missed while Stillfeed was not running (the last one is older than the interval) happens now.
+if(process.env.STILLFEED_DISABLE_SCHEDULE!=='1'&&Date.now()-Date.parse(store.meta('generatedAt')||'0')>store.settings().refreshEvery*3600000)startCollection();
 function stop(){stopping=true;clearTimeout(timer);worker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

@@ -1,5 +1,5 @@
 # Default X accounts (one handle per line, "#" starts a comment). Added once; switch them off in the sidebar.
-# Your own list goes to ~/.local/share/radar/x-accounts.txt.
+# Your own list goes to ~/.local/share/stillfeed/x-accounts.txt.
 
 # Labs and model makers
 OpenAI

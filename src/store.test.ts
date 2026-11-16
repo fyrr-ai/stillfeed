@@ -8,7 +8,7 @@ const paths:string[]=[];
 afterEach(()=>{for(const p of paths.splice(0))rmSync(p,{recursive:true,force:true});});
 const prefs:Filters={scope:'all',kind:'all',q:'',hideSeen:false,hours:72};
 const records=()=>Array.from({length:75},(_,i)=>({url:`https://example.com/${i}`,title:`Article ${i} about testing`,source:'Test journal',site_id:'test',published_at:'2026-11-14T12:00:00Z',ai_is_related:i===0}));
-async function fixture(){const dir=mkdtempSync(join(tmpdir(),'radar-store-'));paths.push(dir);return {dir};}
+async function fixture(){const dir=mkdtempSync(join(tmpdir(),'stillfeed-store-'));paths.push(dir);return {dir};}
 const load=(store:Store)=>store.ingest(records(),'2026-11-15T04:00:00Z');
 test('ingest keeps canonical URLs, seen marks, filters and indexed search',async()=>{
  const {dir}=await fixture();const store=new Store(dir);

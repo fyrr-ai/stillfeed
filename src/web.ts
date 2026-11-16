@@ -423,7 +423,7 @@ export function parseProducthunt(body: string, now: Date): Item[] {
     seen.add(url);
     const doc = htmlDoc(e.summary);
     for (const a of doc.querySelectorAll('a')) a.remove();
-    // The time that orders the list is when the radar first saw the product, not the feed's dates.
+    // The time that orders the list is when the reader first saw the product, not the feed's dates.
     out.push(project('producthunt', 'Product Hunt', name, url, cut(cleanText(textOf(doc.body, ' ')).replace(/^[ |]+|[ |]+$/g, ''), 800), now));
   }
   return out;

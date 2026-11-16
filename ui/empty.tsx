@@ -29,7 +29,7 @@ export function SetupPanel({ sources, config, open, dismiss }: { sources: number
     { section: 'ai', icon: 'sparkles', label: t('setup.ai'), hint: t('setup.ai.hint'), done: Boolean(config?.ai.provider) },
   ];
   return <section id="setup" className="setup" aria-labelledby="setupTitle">
-    <header><h2 id="setupTitle"><Icon name="radar" size={18} />{t('setup.title')}</h2>{dismiss && <button className="icon-button" aria-label={t('setup.dismiss')} title={t('setup.dismiss')} onClick={dismiss}><Icon name="close" size={16} /></button>}</header>
+    <header><h2 id="setupTitle">{t('setup.title')}</h2>{dismiss && <button className="icon-button" aria-label={t('setup.dismiss')} title={t('setup.dismiss')} onClick={dismiss}><Icon name="close" size={16} /></button>}</header>
     <p>{t('setup.text')}</p>
     <ol>{steps.map(step => <li key={step.section}>
       <button className={`setup-step${step.done ? ' done' : ''}`} onClick={() => open(step.section)}>

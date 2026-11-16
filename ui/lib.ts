@@ -25,7 +25,7 @@ export const defaults: Preferences = { view: 'feed', scope: 'ai', kind: 'all', q
 export const PAGE_SIZE = 30;
 
 export async function api<T>(path: string, value?: unknown): Promise<T> {
-  const response = await fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Radar': '1' }, body: JSON.stringify(value) } : {}) });
+  const response = await fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stillfeed': '1' }, body: JSON.stringify(value) } : {}) });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Request failed');
   return data as T;
@@ -52,12 +52,12 @@ export function headline(value: string) { const text = document.createElement('t
 
 export function loadPreferences(): Preferences {
   try {
-    const saved = JSON.parse(localStorage.getItem('radar-v2-preferences') || 'null');
+    const saved = JSON.parse(localStorage.getItem('stillfeed-preferences') || 'null');
     if (saved) return { view: saved.view === 'saved' ? 'saved' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true };
   } catch {}
   return { ...defaults };
 }
-export function storePreferences(preferences: Preferences) { localStorage.setItem('radar-v2-preferences', JSON.stringify({ ...preferences, autoSeen: true })); }
+export function storePreferences(preferences: Preferences) { localStorage.setItem('stillfeed-preferences', JSON.stringify({ ...preferences, autoSeen: true })); }
 export function loadSession(key: string, preferences?: Preferences, maxAge = Infinity): Session | null {
   try {
     const session = JSON.parse(sessionStorage.getItem(key) || 'null') as Session | null;
@@ -70,7 +70,7 @@ export function loadSession(key: string, preferences?: Preferences, maxAge = Inf
 }
 export function loadOutbox(): Record<string, boolean> {
   try {
-    const saved = JSON.parse(localStorage.getItem('radar-v2-outbox') || '{}');
+    const saved = JSON.parse(localStorage.getItem('stillfeed-outbox') || '{}');
     if (saved && typeof saved === 'object') return Object.fromEntries(Object.entries(saved).filter(([id, on]) => /^[a-f0-9]{32}$/.test(id) && typeof on === 'boolean')) as Record<string, boolean>;
   } catch {}
   return {};

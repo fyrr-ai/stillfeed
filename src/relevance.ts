@@ -11,7 +11,7 @@ const UNSAFE_HARD_PATTERNS=[word('creampie'),word('blowjob'),word('suck (?:your|
 const UNSAFE_PROMO_PATTERNS=[word('nsfw|nudes?|porn(?:ography)?'),word('uncensored pictures?'),word('virtual girlfriends?'),word('knock her up'),/未经审查的图片|虚拟女友|色情内容|成人内容/iu];
 const EN_SIGNAL_RE=/(?<![a-z0-9])(ai|aigc|llm|gpt|openai|anthropic|deepseek|gemini|claude|grok|xai|robot|robotics|embodied|autonomous|machine learning|artificial intelligence|transformer|diffusion|agent)(?![a-z0-9])/iu;
 const MEANINGFUL_EN_SIGNAL_RE=/(?<![a-z0-9])(?:(ai|aigc|llm|gpt|openai|anthropic|deepseek|gemini|claude|grok|xai|robot|robotics|embodied|autonomous|machine learning|artificial intelligence|transformer|diffusion)(?![a-z0-9])|(qwen|llama|mistral|kimi|gemma|glm|sora|veo|nemotron|phi|codex|fable)[- ]?\d)/iu;
-// Data engineering is part of the radar too, matched on word boundaries so "spark" or "arrow" in ordinary prose
+// Data engineering is part of the reader too, matched on word boundaries so "spark" or "arrow" in ordinary prose
 // needs a data context word next to it.
 const DATA_SIGNAL_RE=/(?<![a-z0-9])(dbt|duckdb|motherduck|iceberg|lakehouse|data ?lake|data engineer(?:ing|s)?|analytics engineer(?:ing|s)?|data warehouse|data pipelines?|snowflake|databricks|bigquery|clickhouse|redshift|dagster|airflow|airbyte|fivetran|kafka|flink|parquet|polars|pyarrow|apache arrow|apache spark|pyspark|spark sql|delta lake|semantic layer|etl|elt|olap|datafusion|sqlmesh|metabase|superset|data stack|dataframe)(?![a-z0-9])/iu;
 // "cursor" is a substring of ordinary words like "precursor", so it needs word boundaries.
