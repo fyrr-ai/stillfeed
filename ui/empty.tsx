@@ -1,13 +1,14 @@
 import { Icon, type IconName } from './icons';
 import { t } from './i18n';
 import type { Config } from './lib';
-import type { SettingsSection } from './sidebar';
 
+/** Where a setup step leads: the Sources page (feeds, X accounts) or the drawer's AI section. */
+export type SetupStep = 'sources' | 'x' | 'ai';
 export type EmptyKind = 'noSources' | 'collecting' | 'caughtUp' | 'noResults' | 'nothingSaved' | 'noUpdates';
 const icons: Record<EmptyKind, IconName> = { noSources: 'rss', collecting: 'hourglass', caughtUp: 'done', noResults: 'search', nothingSaved: 'saved', noUpdates: 'inbox' };
 
 /** One empty state per situation, each with its own next action. Ids stay stable for the test suite. */
-export function EmptyState({ kind, reset, refresh, showSeen, openSettings, refreshing }: { kind: EmptyKind; reset: () => void; refresh: () => void; showSeen: () => void; openSettings: (section: SettingsSection) => void; refreshing: boolean }) {
+export function EmptyState({ kind, reset, refresh, showSeen, openSettings, refreshing }: { kind: EmptyKind; reset: () => void; refresh: () => void; showSeen: () => void; openSettings: (section: SetupStep) => void; refreshing: boolean }) {
   const action = kind === 'noSources' ? <button id="emptyReset" className="primary-button" onClick={() => openSettings('sources')}><Icon name="plus" size={16} />{t('setup.sources')}</button>
     : kind === 'collecting' ? <button id="emptyReset" className="secondary-button" disabled={refreshing} onClick={refresh}><Icon name="refresh" size={15} className={refreshing ? 'spinning' : undefined} />{t('empty.refresh')}</button>
     : kind === 'caughtUp' ? <button id="emptyReset" className="secondary-button" onClick={showSeen}>{t('empty.showSeen')}</button>
@@ -21,9 +22,9 @@ export function EmptyState({ kind, reset, refresh, showSeen, openSettings, refre
   </section>;
 }
 
-/** First run: three short steps, each opening its settings section; done steps show a check. */
-export function SetupPanel({ sources, config, open, dismiss }: { sources: number | null; config: Config | null | undefined; open: (section: SettingsSection) => void; dismiss?: () => void }) {
-  const steps: { section: SettingsSection; icon: IconName; label: string; hint: string; done: boolean }[] = [
+/** First run: three short steps, each opening its page or settings section; done steps show a check. */
+export function SetupPanel({ sources, config, open, dismiss }: { sources: number | null; config: Config | null | undefined; open: (section: SetupStep) => void; dismiss?: () => void }) {
+  const steps: { section: SetupStep; icon: IconName; label: string; hint: string; done: boolean }[] = [
     { section: 'sources', icon: 'rss', label: t('setup.sources'), hint: t('setup.sources.hint'), done: (sources ?? 0) > 0 },
     { section: 'x', icon: 'x', label: t('setup.x'), hint: t('setup.x.hint'), done: Boolean(config?.x.configured) },
     { section: 'ai', icon: 'sparkles', label: t('setup.ai'), hint: t('setup.ai.hint'), done: Boolean(config?.ai.provider) },

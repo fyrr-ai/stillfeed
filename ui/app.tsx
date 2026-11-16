@@ -5,16 +5,18 @@ import { Drawer, DrawerBackdrop, DrawerContent, DrawerTrigger } from '@ui-sdk/re
 import { Toast, ToastAction, ToastRegion, ToastTitle, createToaster } from '@ui-sdk/react/toast';
 import { Card, type CardActions } from './card';
 import { Detail, type DetailRoute } from './detail';
-import { EmptyState, SetupPanel, type EmptyKind } from './empty';
+import { EmptyState, SetupPanel, type EmptyKind, type SetupStep } from './empty';
 import { Icon } from './icons';
 import { t } from './i18n';
-import { Sidebar, type SettingsSection, type SidebarStatus } from './sidebar';
+import { Sidebar, type SidebarStatus } from './sidebar';
+import { SourcesPage, summarize, type SourcesFocus } from './sources';
 import {
   api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
-  type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status,
+  type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
 } from './lib';
 
 const detailPath = /^\/(article|post)\/([a-f0-9]{32})$/;
+const SOURCES_PATH = '/sources';
 type Hint = { label: string; opacity: number; mode: 'back' | 'pull' } | null;
 const SETUP_DISMISSED = 'stillfeed-setup-dismissed';
 
@@ -34,7 +36,6 @@ function hint(label: string | null, distance = 0, mode: 'back' | 'pull' = 'pull'
   showHint({ label, mode, opacity: Math.min(1, .4 + distance / 150) });
 }
 
-let sourcesChanged = false;
 const toaster = createToaster();
 
 /** Hot: a few must-not-miss picks with the reason; they leave only when opened or dismissed. */
@@ -56,9 +57,11 @@ export function App() {
   const [message, setMessage] = useState('');
   const [syncFailed, setSyncFailed] = useState(false);
   const [status, setStatus] = useState<SidebarStatus & { refreshing: boolean; newUpdates: boolean }>({ updated: t('settings.updated.loading'), rss: 0, failed: [], preparation: null, importError: false, stored: null, revision: null, refreshing: false, newUpdates: false });
-  // Server configuration and the source count drive first-run and the empty states; both are optional endpoints.
+  // Server configuration and the source list drive first-run, the empty states and the Sources row; both are optional endpoints.
   const [config, setConfig] = useState<Config | null | undefined>(undefined);
-  const [sourceCount, setSourceCount] = useState<number | null>(null);
+  const [library, setLibrary] = useState<{ sources: Source[]; accounts: XAccount[] | null } | null>(null);
+  const [sourcesOpen, setSourcesOpenState] = useState(() => location.pathname === SOURCES_PATH);
+  const [sourcesFocus, setSourcesFocus] = useState<SourcesFocus>('heading');
   const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem(SETUP_DISMISSED) === '1');
   const [route, setRouteState] = useState<DetailRoute | null>(() => { const m = detailPath.exec(location.pathname); return m ? { kind: m[1] as 'article' | 'post', id: m[2]!, article: null } : null; });
   const [optionsOpen, setOptionsOpenState] = useState(false);
@@ -67,7 +70,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState(prefs.q);
   const [headerHidden, setHeaderHidden] = useState(false);
-  const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && !detailPath.test(location.pathname));
+  const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && location.pathname === '/');
   const [hot, setHot] = useState<HotItem[]>([]);
   const [hotLoading, setHotLoading] = useState(true);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
@@ -75,10 +78,10 @@ export function App() {
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
-    prefs, items, feed, loading, failedNewView, route, optionsOpen, settings, pendingUpdates: false,
+    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, settings, pendingUpdates: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
-    returnTo: (route ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
-    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusSection: null as SettingsSection | null, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
+    returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
+    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
     /** Articles opened in the current snapshot: they stay out of it, also after a restore. */
     collapsed: new Set<string>(),
   }).current;
@@ -93,6 +96,9 @@ export function App() {
   const setLoading = (on: boolean) => { r.loading = on; setLoadingState(on); };
   const setFailed = (on: boolean) => { r.failedNewView = on; setFailedState(on); };
   const setRoute = (next: DetailRoute | null) => { r.route = next; setRouteState(next); };
+  const setSourcesOpen = (open: boolean) => { r.sourcesOpen = open; setSourcesOpenState(open); };
+  /** The detail or the Sources page covers the feed, which stays mounted underneath. */
+  const covered = () => r.route !== null || r.sourcesOpen;
   const setSettings = (next: Settings) => { r.settings = next; setSettingsState(next); };
   const patchArticle = (id: string, patch: Partial<Article>) => {
     if (r.items.some(a => a.id === id)) setItems(r.items.map(a => a.id === id ? { ...a, ...patch } : a));
@@ -100,7 +106,7 @@ export function App() {
   };
 
   // Seen means "was on screen for a second", never while options or the detail cover the feed.
-  const unobscured = () => !document.hidden && !r.optionsOpen && !r.confirmOpen && !r.hotOpen && r.route === null;
+  const unobscured = () => !document.hidden && !r.optionsOpen && !r.confirmOpen && !r.hotOpen && !covered();
   const observer = useMemo(() => new IntersectionObserver(entries => {
     for (const entry of entries) {
       const node = entry.target as HTMLElement, id = node.dataset.id!;
@@ -138,7 +144,7 @@ export function App() {
   /** Remembers the view, batch, page count and the first visible row, so reloads land on the same item. */
   function save() {
     storePreferences(r.prefs);
-    if (!r.feed || r.restoring || r.failedNewView || r.route) return;
+    if (!r.feed || r.restoring || r.failedNewView || covered()) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
     const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), collapsed: [...r.collapsed] };
     sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
@@ -195,7 +201,7 @@ export function App() {
     const observer = new ResizeObserver(() => {
       if (done) return;
       const node = list.querySelector<HTMLElement>(`[data-id="${id}"]`);
-      if (node && !r.route) { expected = Math.round(node.getBoundingClientRect().top + scrollY - offset); window.scrollTo(0, expected); expected = scrollY; }
+      if (node && !covered()) { expected = Math.round(node.getBoundingClientRect().top + scrollY - offset); window.scrollTo(0, expected); expected = scrollY; }
     });
     observer.observe(list);
     addEventListener('touchstart', stop, { passive: true }); addEventListener('wheel', stop, { passive: true }); addEventListener('keydown', stop); addEventListener('scroll', onScroll, { passive: true });
@@ -213,8 +219,8 @@ export function App() {
         if (saved) for (let i = 1; i < Math.min(saved.pages, 100) && r.feed?.next !== null; i++) await getPage(true);
       }
       const node = saved?.position ? listRef.current?.querySelector<HTMLElement>(`[data-id="${saved.position.id}"]`) : null;
-      if (!r.route) window.scrollTo(0, node && saved?.position ? node.getBoundingClientRect().top + scrollY - saved.position.offset : 0);
-      if (!r.route && node && saved?.position) pinAnchor(saved.position.id, saved.position.offset);
+      if (!covered()) window.scrollTo(0, node && saved?.position ? node.getBoundingClientRect().top + scrollY - saved.position.offset : 0);
+      if (!covered() && node && saved?.position) pinAnchor(saved.position.id, saved.position.offset);
     } finally { r.restoring = false; if (listRef.current) listRef.current.style.visibility = 'visible'; watch(); save(); }
   }
 
@@ -276,14 +282,16 @@ export function App() {
       if (r.refreshRequested && !refreshing) { r.refreshRequested = false; newUpdates ||= r.prefs.view === 'feed' && r.feed?.revision !== data.revision; }
       r.pendingUpdates = newUpdates;
       const generated = data.generatedAt ? new Date(data.generatedAt) : null;
-      setStatus({
+      const failed = Array.isArray(data.failedSources) ? data.failedSources.filter(f => f && typeof f.id === 'string') : [];
+      // The same failures keep the same array, so the Sources page does not rebuild its rows on every poll.
+      setStatus(previous => ({
         updated: generated && !Number.isNaN(generated.getTime()) ? t('settings.updated', { time: new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }).format(generated) }) : t('settings.updated.loading'),
         rss: Number(data.collection.rss) || 0,
-        failed: Array.isArray(data.failedSources) ? data.failedSources.filter(f => f && typeof f.id === 'string') : [],
+        failed: JSON.stringify(failed) === JSON.stringify(previous.failed) ? previous.failed : failed,
         preparation: data.preparation ?? null, importError: Boolean(data.importError),
         stored: typeof data.articles?.total === 'number' ? data.articles.total : null, revision: Number.isFinite(data.revision) ? data.revision : null,
         refreshing, newUpdates,
-      });
+      }));
       if (newUpdates && atTop() && !r.loading) applyUpdates();
       if (data.refresh === 'failed') setMessage(t('error.refresh'));
     } catch { setMessage(t('error.status')); }
@@ -304,7 +312,7 @@ export function App() {
       // One toast at a time: a newer action replaces the previous Undo.
       toaster.dismiss();
       if (undoable) toaster(on ? t('toast.saved') : t('toast.unsaved'), { action: { label: t('toast.undo'), onAction: () => void latest.current.saveArticle(article, !on, false) } });
-      if (!on && r.prefs.view === 'saved') { const y = scrollY; setFeed(null); await getPage(false); if (!r.route) window.scrollTo(0, y); }
+      if (!on && r.prefs.view === 'saved') { const y = scrollY; setFeed(null); await getPage(false); if (!covered()) window.scrollTo(0, y); }
     } catch (error) {
       const text = error instanceof Error ? error.message : t('reader.saveFailed');
       if (r.route) setNotice(text); else setMessage(text);
@@ -359,21 +367,40 @@ export function App() {
   /** A new snapshot of the current view: seen updates are gone, the list starts at the top. */
   async function reloadFresh() {
     if (r.hotOpen) return void loadHot();
-    if (r.route || r.prefs.view !== 'feed') return;
+    if (covered() || r.prefs.view !== 'feed') return;
     await flush();
     setFeed(null); await getPage(false).catch(() => {}); window.scrollTo(0, 0);
   }
+  /** Sources is a page like the detail: its own URL, the feed kept underneath for Back. */
+  function openSources(focus: SourcesFocus = 'heading', navigate = true) {
+    if (navigate) {
+      // From the drawer, the reading position is the one it opened at; its scroll lock may still hold the page.
+      const y = r.optionsOpen ? r.optionsScroll : scrollY;
+      save(); r.returnTo = { y, anchor: null };
+      history.replaceState({ ...history.state, feedY: y }, '', location.href);
+      history.pushState({ fromFeed: true, feedY: y }, '', SOURCES_PATH);
+    }
+    if (r.optionsOpen) { keepReadingPosition(); setOptionsOpen(false); }
+    unwatch(); setSourcesFocus(focus);
+    flushSync(() => { setRoute(null); setSourcesOpen(true); });
+    document.title = t('sources.title');
+    window.scrollTo(0, 0);
+  }
   function showFeed() {
     // The article just read leaves the feed right away; the rest of the list keeps its place.
-    const opened = r.route?.id;
-    flushSync(() => { setRoute(null); if (opened && r.prefs.hideSeen && r.prefs.view === 'feed') { r.collapsed.add(opened); setItems(r.items.filter(a => a.id !== opened)); } });
+    const opened = r.route?.id, rebuild = r.sourcesOpen && r.sourcesChanged;
+    flushSync(() => { setRoute(null); setSourcesOpen(false); if (opened && r.prefs.hideSeen && r.prefs.view === 'feed') { r.collapsed.add(opened); setItems(r.items.filter(a => a.id !== opened)); } });
     document.title = t('app.name');
+    // Changed sources change the view: a fresh snapshot from the top instead of a stale place in the old one.
+    if (rebuild) { r.sourcesChanged = false; setFeed(null); window.scrollTo(0, 0); void getPage(false).catch(() => {}); return; }
     window.scrollTo(0, history.state?.feedY ?? r.returnTo?.y ?? 0);
     r.returnTo?.anchor?.focus({ preventScroll: true }); watch(); save();
   }
   async function followRoute() {
+    if (location.pathname === SOURCES_PATH) { if (!r.sourcesOpen) openSources('heading', false); return; }
     const match = detailPath.exec(location.pathname);
-    if (!match) { if (r.route) showFeed(); return; }
+    if (!match) { if (covered()) showFeed(); return; }
+    if (r.sourcesOpen) showFeed();
     try {
       const article = r.items.find(a => a.id === match[2]) || await api<Article>(`/api/article/${match[2]}`);
       if (location.pathname === `/${match[1]}/${match[2]}`) openDetail(article, null, false);
@@ -418,7 +445,7 @@ export function App() {
     };
     const onPageHide = () => l().save();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' || (event.target as HTMLElement).closest('input,textarea,button,[role=switch],[role=combobox]') || r.optionsOpen || r.route) return;
+      if (event.key === 'Escape' || (event.target as HTMLElement).closest('input,textarea,button,[role=switch],[role=combobox]') || r.optionsOpen || covered()) return;
       if (event.key === '/') { event.preventDefault(); openSearch(); }
       if (event.key === 'r') void l().refresh();
     };
@@ -434,7 +461,7 @@ export function App() {
       try {
         setSettings(await api<Settings>('/api/settings'));
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
-        void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); });
+        void loadLibrary();
         // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
         await loadView(loadSession('stillfeed-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
         void loadHot();
@@ -492,13 +519,19 @@ export function App() {
    *  for that one release, put the reader back where they were. */
   function keepReadingPosition() {
     const target = r.optionsScroll, until = Date.now() + 1500;
-    const restore = () => { if (Date.now() < until && !r.route && Math.abs(scrollY - target) > 2) window.scrollTo(0, target); };
+    // A page opened from the drawer (Sources) starts at its top instead.
+    const restore = () => { const y = r.sourcesOpen ? 0 : target; if (Date.now() < until && !r.route && Math.abs(scrollY - y) > 2) window.scrollTo(0, y); };
     const observer = new MutationObserver(() => { restore(); requestAnimationFrame(restore); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     setTimeout(() => observer.disconnect(), 1500);
   }
   function openSearch() { r.focusSearch = true; setOptionsOpen(true); }
-  function openSettings(section: SettingsSection) { r.focusSection = section; setOptionsOpen(true); }
+  /** Setup steps: sources and X lead to the Sources page, AI to its drawer section. */
+  function openSetup(step: SetupStep) { if (step === 'ai') { r.focusAI = true; setOptionsOpen(true); } else openSources(step === 'x' ? 'x' : 'url'); }
+  async function loadLibrary() {
+    const [sources, accounts] = await Promise.all([optional<Source[]>('/api/sources'), optional<XAccount[]>('/api/x-accounts')]);
+    if (Array.isArray(sources)) setLibrary({ sources, accounts: Array.isArray(accounts) ? accounts : null });
+  }
   function dismissSetup() { localStorage.setItem(SETUP_DISMISSED, '1'); setSetupDismissed(true); }
 
   const view = prefs.view;
@@ -508,6 +541,8 @@ export function App() {
   const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', view === 'feed' && !prefs.hideSeen ? t('feed.filters.showingSeen') : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
+  const sourceCount = library ? library.sources.length : null;
+  const sourcesSummary = useMemo(() => library ? summarize(library.sources, library.accounts, status.failed) : null, [library, status.failed]);
   const emptyKind: EmptyKind | null = !empty ? null : prefs.q ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : prefs.hideSeen ? 'caughtUp' : 'noUpdates';
   // First run: the panel leads the feed until sources, X and AI are set up, or until it is hidden.
   const setupNeeded = sourceCount === 0 || (config ? !config.ai.provider || !config.x.configured : false);
@@ -515,7 +550,7 @@ export function App() {
 
   return <>
     <a className="skip" href="#feed">{t('skip')}</a>
-    <div id="readerOptions" hidden={route !== null}>
+    <div id="readerOptions" hidden={route !== null || sourcesOpen}>
       {/* Read / total of this snapshot; it stays in the corner when the bar slides away. */}
       {!hotOpen && view === 'feed' && total > 0 && <span id="readCount" className={`read-count${headerHidden ? ' read-count-corner' : ''}`} aria-label={t('feed.readCount', { read: total - unseen, total })}>{total - unseen}/{total}</span>}
       <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
@@ -527,22 +562,18 @@ export function App() {
         <div className="top-actions">
           <Drawer side="right" open={optionsOpen} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
-            if (open && r.focusSection) {
-              const section = r.focusSection; r.focusSection = null;
-              document.getElementById(`settings-${section}`)?.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
-              if (section === 'sources') document.getElementById('addSourceUrl')?.focus({ preventScroll: true });
-            }
-            if (!open && sourcesChanged) { sourcesChanged = false; setFeed(null); void getPage(false).catch(() => {}); void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); }); }
+            // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
+            if (!open && r.sourcesOpen) document.getElementById('sourcesTitle')?.focus({ preventScroll: true });
+            if (open && r.focusAI) { r.focusAI = false; document.getElementById('settings-ai')?.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' }); }
             watch(); save();
           }}>
             <DrawerTrigger className="icon-button" aria-label={t('options.open')} title={t('options.open')}><Icon name="menu" /></DrawerTrigger>
             <DrawerBackdrop className="side-backdrop" />
             <DrawerContent id="optionsSheet" className="sidebar">
               <Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
-                status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sourcesChanged={() => { sourcesChanged = true; }} notify={text => toaster(text)}
+                status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sources={sourcesSummary} openSources={() => openSources()}
                 config={config} counts={!hotOpen && view === 'feed' && feed ? { unseen, total } : null}
-                markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()}
-                sourcesLoaded={list => setSourceCount(list.length)} />
+                markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()} />
             </DrawerContent>
           </Drawer>
         </div>
@@ -554,13 +585,13 @@ export function App() {
         <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>
         <p id="syncNote" className="notice" hidden={!syncFailed}>{t('feed.offline')}</p>
         <p id="message" className="notice error" role="alert" hidden={!message}>{message}</p>
-        {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSettings} dismiss={dismissSetup} />}
+        {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSetup} dismiss={dismissSetup} />}
         <div id="loading" className="skeleton" aria-label={t('feed.loading')} hidden={!booting}><div></div><div></div><div></div></div>
         <motion.section id="feed" ref={listRef} aria-label={t('feed.label')} style={{ y: pullY }}>
           {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} />)}
         </motion.section>
-        {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSettings} />}
-        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSettings} />}
+        {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
+        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
@@ -570,6 +601,8 @@ export function App() {
       </main>
     </div>
     <Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} />
+    {sourcesOpen && <SourcesPage focus={sourcesFocus} back={backToFeed} config={config} failed={status.failed} refresh={() => void refresh()} refreshing={status.refreshing} notify={text => { toaster.dismiss(); toaster(text); }}
+      changed={() => { r.sourcesChanged = true; }} loaded={(sources, accounts) => setLibrary({ sources, accounts })} />}
     <GestureHint />
     <ToastRegion toaster={toaster} className="toast-region">{() => <Toast className="toast"><ToastTitle className="toast-title" /><ToastAction className="toast-action" /></Toast>}</ToastRegion>
   </>;

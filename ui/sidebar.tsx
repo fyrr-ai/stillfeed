@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogDescription, AlertDialogTitle, AlertDialogTrigger } from '@ui-sdk/react/alert-dialog';
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/react/collapsible';
 import { DrawerClose, DrawerTitle } from '@ui-sdk/react/drawer';
@@ -7,28 +7,27 @@ import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } fro
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
 import { Icon, type IconName } from './icons';
 import { languageName, t, type Key } from './i18n';
-import { api, optional, type Config, type FailedSource, type Preferences, type Settings, type Source, type XAccount } from './lib';
+import type { Config, FailedSource, Preferences, Settings } from './lib';
+import { attentionText, type SourcesSummary } from './sources';
 
-type Suggestion = { id: string; kind: 'x' | 'site'; key: string; name: string; mentions: number; reason: string };
 export type SidebarStatus = { updated: string; rss: number; failed: FailedSource[]; preparation: Record<string, number> | null; importError: boolean; stored: number | null; revision: number | null };
-export type SettingsSection = 'sources' | 'x' | 'ai';
 export type SidebarProps = {
   prefs: Preferences; query: string; setQuery: (q: string) => void;
   change: (next: Partial<Preferences>, newSeenBatch?: boolean) => void;
   settings: Settings; applySettings: (patch: Partial<Settings>) => Promise<void>;
   status: SidebarStatus; refreshing: boolean; refresh: () => void;
-  sourcesChanged: () => void; notify: (text: string) => void;
+  /** Totals for the Sources row; null while loading. */
+  sources: SourcesSummary | null; openSources: () => void;
   /** undefined while loading, null when the server has no /api/config yet. */
   config: Config | null | undefined;
   /** The feed view's unseen / total; hidden on Hot and Saved. */
   counts: { unseen: number; total: number } | null;
   markAll: () => void; onConfirmOpen: (open: boolean) => void; onConfirmSettled: () => void;
-  sourcesLoaded: (sources: Source[]) => void;
 };
 
 const message = (failure: unknown, fallback: Key) => failure instanceof Error ? failure.message : t(fallback);
 
-function Section({ id, title, icon, children }: { id: SettingsSection | 'view' | 'refresh' | 'history' | 'diagnostics'; title: string; icon: IconName; children: ReactNode }) {
+function Section({ id, title, icon, children }: { id: 'view' | 'sources' | 'ai' | 'refresh' | 'history' | 'diagnostics'; title: string; icon: IconName; children: ReactNode }) {
   return <section className="side-section" id={`settings-${id}`} aria-labelledby={`settings-${id}-title`}>
     <h3 className="side-label" id={`settings-${id}-title`}><Icon name={icon} size={14} />{title}</h3>
     {children}
@@ -55,136 +54,6 @@ function Disclosure({ className = '', label, hint, children, defaultOpen = false
   </Collapsible>;
 }
 
-function Suggestions({ notify }: { notify: (text: string) => void }) {
-  const [items, setItems] = useState<Suggestion[] | null>(null);
-  useEffect(() => { api<{ items: Suggestion[] }>('/api/suggestions').then(r => setItems(r.items)).catch(() => setItems([])); }, []);
-  if (!items?.length) return null;
-  const decide = async (item: Suggestion, action: 'add' | 'ignore') => {
-    setItems(list => list?.filter(s => s.id !== item.id) ?? null);
-    try { await api('/api/suggestions', { id: item.id, action }); if (action === 'add') notify(t('toast.sourceAdded', { name: item.kind === 'x' ? '@' + item.key : item.name })); }
-    catch (error) { notify(message(error, 'error.suggestion')); }
-  };
-  return <div id="suggestions" className="suggestions" aria-label={t('settings.suggested')}>
-    <span className="side-field-label">{t('settings.suggested')}</span>
-    {items.map(item => <div key={item.id} className="suggestion">
-      <div><b>{item.kind === 'x' ? <a href={`https://x.com/${encodeURIComponent(item.key)}`} target="_blank" rel="noopener noreferrer">@{item.key}</a> : item.name}</b>
-        <small>{item.kind === 'x' ? t('settings.suggested.x') : t('settings.suggested.site')} · {t('settings.suggested.citedBy', { n: item.mentions })}</small>
-        <p>{item.reason}</p></div>
-      <div className="suggestion-actions"><button className="ghost-button" onClick={() => void decide(item, 'ignore')}>{t('settings.suggested.ignore')}</button><button className="solid-button" onClick={() => void decide(item, 'add')}>{t('settings.suggested.add')}</button></div>
-    </div>)}
-  </div>;
-}
-
-/** Sources that failed on the last refresh, as one row that expands to the errors. */
-function Attention({ failed, retry, refreshing }: { failed: FailedSource[]; retry: () => void; refreshing: boolean }) {
-  if (!failed.length) return null;
-  return <Collapsible className="attention" id="sourcesAttention">
-    <CollapsibleTrigger className="side-row attention-trigger"><span><Icon name="alert" size={16} /><b>{failed.length === 1 ? t('settings.sources.attentionOne') : t('settings.sources.attention', { n: failed.length })}</b></span><Icon name="chevron" size={18} className="disclosure" /></CollapsibleTrigger>
-    <CollapsiblePanel className="side-disclosure-panel">
-      {failed.map(f => <div key={f.id} className="attention-item"><b>{f.name}</b><small>{f.error}</small></div>)}
-      <button className="ghost-button" disabled={refreshing} onClick={retry}><Icon name="refresh" size={14} />{t('settings.sources.retry')}</button>
-    </CollapsiblePanel>
-  </Collapsible>;
-}
-
-function AddSource({ added }: { added: (source: Source) => void }) {
-  const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const value = url.trim(); if (!value || busy) return;
-    setBusy(true); setError('');
-    try { const source = await api<Source>('/api/sources/add', { url: value }); setUrl(''); added(source); }
-    catch (failure) { setError(message(failure, 'error.addSource')); }
-    finally { setBusy(false); }
-  };
-  return <form className="side-form" onSubmit={e => void submit(e)}>
-    <label className="side-field-label" htmlFor="addSourceUrl">{t('settings.sources.add')}</label>
-    <div className="side-form-row">
-      <Input id="addSourceUrl" className="side-input" type="url" inputMode="url" placeholder={t('settings.sources.add.placeholder')} aria-label={t('settings.sources.add.label')} value={url} onValueChange={value => setUrl(String(value))} required />
-      <button className="solid-button" type="submit" disabled={busy || !url.trim()}>{busy ? t('settings.sources.adding') : <><Icon name="plus" size={14} />{t('settings.sources.add')}</>}</button>
-    </div>
-    {error && <p className="side-error" role="alert">{error}</p>}
-  </form>;
-}
-
-function SourceList({ sources, setSources, changed, notify }: { sources: Source[] | 'loading' | 'failed'; setSources: (update: (list: Source[]) => Source[]) => void; changed: () => void; notify: (text: string) => void }) {
-  const [query, setQuery] = useState('');
-  const [error, setError] = useState('');
-  const toggle = async (source: Source, on: boolean) => {
-    setSources(list => list.map(s => s.id === source.id ? { ...s, enabled: Number(on) } : s));
-    try { await api('/api/sources', { id: source.id, enabled: on }); changed(); }
-    catch (failure) {
-      setSources(list => list.map(s => s.id === source.id ? { ...s, enabled: source.enabled } : s));
-      setError(message(failure, 'error.source'));
-    }
-  };
-  const remove = async (source: Source) => {
-    try { await api('/api/sources/remove', { id: source.id }); setSources(list => list.filter(s => s.id !== source.id)); changed(); notify(t('toast.sourceRemoved', { name: source.name })); }
-    catch (failure) { setError(message(failure, 'error.removeSource')); }
-  };
-  const list = Array.isArray(sources) ? sources : [];
-  const count = Array.isArray(sources) ? t('settings.sources.count', { on: list.filter(s => s.enabled).length, total: list.length }) : '';
-  return <Disclosure className="side-sources" label={t('settings.sources.all')} hint={count}>
-    <Input id="sourceSearch" className="side-input" type="search" placeholder={t('settings.sources.find.placeholder')} aria-label={t('settings.sources.find')} value={query} onValueChange={value => setQuery(String(value))} />
-    <div id="sources" className="source-list">
-      {sources === 'loading' ? <p className="side-hint">{t('settings.sources.loading')}</p> : sources === 'failed' ? <p className="side-error">{t('settings.sources.failed')}</p>
-        : list.filter(s => s.name.toLowerCase().includes(query.toLowerCase())).map(s => <div key={s.id} className={`source-row${s.error ? ' source-failed' : ''}`}>
-          <span><b>{s.name}</b><small>{s.error ? <><Icon name="alert" size={12} />{s.error}</> : t('settings.sources.updates', { n: s.articles })}</small></span>
-          <Switch className="switch" checked={Boolean(s.enabled)} onCheckedChange={on => void toggle(s, on)} aria-label={s.name}><SwitchThumb className="switch-thumb" /></Switch>
-          <AlertDialog>
-            <AlertDialogTrigger className="icon-button source-remove" aria-label={t('settings.sources.remove', { name: s.name })} title={t('settings.sources.remove', { name: s.name })}><Icon name="trash" size={15} /></AlertDialogTrigger>
-            <AlertDialogContent className="sheet confirm-sheet">
-              <AlertDialogTitle className="confirm-title">{t('settings.sources.remove.title', { name: s.name })}</AlertDialogTitle>
-              <AlertDialogDescription className="field-help">{t('settings.sources.remove.text')}</AlertDialogDescription>
-              <div className="confirm-actions"><AlertDialogClose className="secondary-button">{t('settings.markAll.cancel')}</AlertDialogClose><AlertDialogClose className="primary-button" onClick={() => void remove(s)}>{t('settings.sources.remove.confirm')}</AlertDialogClose></div>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>)}
-    </div>
-    {error && <p className="side-error" role="alert">{error}</p>}
-  </Disclosure>;
-}
-
-function XAccounts({ config, changed }: { config: Config | null | undefined; changed: () => void }) {
-  const [accounts, setAccounts] = useState<XAccount[] | null | 'loading'>('loading');
-  const [handle, setHandle] = useState('');
-  const [error, setError] = useState('');
-  useEffect(() => { void optional<XAccount[]>('/api/x-accounts').then(list => setAccounts(Array.isArray(list) ? list : null)); }, []);
-  const update = async (next: XAccount, previous?: XAccount[]) => {
-    setError('');
-    try { await api('/api/x-accounts', { handle: next.handle, enabled: next.enabled }); changed(); }
-    catch (failure) { setError(message(failure, 'error.account')); if (previous) setAccounts(previous); }
-  };
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
-    const clean = handle.trim().replace(/^@/, ''); if (!clean || !Array.isArray(accounts)) return;
-    const previous = accounts;
-    setAccounts([...accounts.filter(a => a.handle.toLowerCase() !== clean.toLowerCase()), { handle: clean, enabled: true }]); setHandle('');
-    await update({ handle: clean, enabled: true }, previous);
-  };
-  const connected = config?.x.configured;
-  return <>
-    <div className="side-row side-status"><span><b>{config === undefined ? t('settings.updated.loading') : connected ? t('settings.x.connected') : t('settings.x.notConnected')}</b>{config && !connected && <small>{t('settings.x.notConnected.hint')}</small>}</span>
-      <span className={`status-dot${connected ? ' on' : ''}`} aria-hidden="true" /></div>
-    {accounts === null ? <p className="side-hint">{t('settings.x.unavailable')}</p> : <>
-      <form className="side-form" onSubmit={e => void add(e)}>
-        <div className="side-form-row">
-          <Input id="addXHandle" className="side-input" placeholder={t('settings.x.add.placeholder')} aria-label={t('settings.x.add.label')} value={handle} onValueChange={value => setHandle(String(value))} autoCapitalize="none" autoCorrect="off" />
-          <button className="solid-button" type="submit" disabled={accounts === 'loading' || !handle.trim()}><Icon name="plus" size={14} />{t('settings.x.add')}</button>
-        </div>
-      </form>
-      <div className="source-list" id="xAccounts">
-        {accounts === 'loading' ? <p className="side-hint">{t('settings.updated.loading')}</p> : !accounts.length ? <p className="side-hint">{t('settings.x.none')}</p>
-          : accounts.map(a => <label key={a.handle} className="source-row"><span><b>{a.name || `@${a.handle}`}</b>{a.name && <small>@{a.handle}</small>}</span>
-            <Switch className="switch" checked={a.enabled} onCheckedChange={on => { const previous = accounts; setAccounts(accounts.map(x => x.handle === a.handle ? { ...x, enabled: on } : x)); void update({ ...a, enabled: on }, previous); }} aria-label={`@${a.handle}`}><SwitchThumb className="switch-thumb" /></Switch></label>)}
-      </div>
-    </>}
-    {error && <p className="side-error" role="alert">{error}</p>}
-  </>;
-}
-
 function AIStatus({ config }: { config: Config | null | undefined }) {
   if (config === undefined) return <p className="side-hint">{t('settings.updated.loading')}</p>;
   if (config === null) return <p className="side-hint">{t('settings.ai.unavailable')}</p>;
@@ -199,18 +68,14 @@ function AIStatus({ config }: { config: Config | null | undefined }) {
 }
 
 /** The sidebar: every control applies at once, so there is nothing to save. */
-export function Sidebar({ prefs, query, setQuery, change, settings, applySettings, status, refreshing, refresh, sourcesChanged, notify, config, counts, markAll, onConfirmOpen, onConfirmSettled, sourcesLoaded }: SidebarProps) {
+export function Sidebar({ prefs, query, setQuery, change, settings, applySettings, status, refreshing, refresh, sources, openSources, config, counts, markAll, onConfirmOpen, onConfirmSettled }: SidebarProps) {
   const [days, setDays] = useState(String(settings.windowHours / 24));
   const [retention, setRetention] = useState(String(settings.retentionDays));
   const [error, setError] = useState('');
-  const [sources, setSourcesState] = useState<Source[] | 'loading' | 'failed'>('loading');
   useEffect(() => { setDays(String(settings.windowHours / 24)); setRetention(String(settings.retentionDays)); }, [settings]);
-  useEffect(() => { api<Source[]>('/api/sources').then(list => { setSourcesState(list); sourcesLoaded(list); }).catch(() => setSourcesState('failed')); }, []);
-  const setSources = (update: (list: Source[]) => Source[]) => setSourcesState(list => { if (!Array.isArray(list)) return list; const next = update(list); sourcesLoaded(next); return next; });
   const apply = async (patch: Partial<Settings>) => { setError(''); try { await applySettings(patch); } catch (failure) { setError(message(failure, 'error.save')); setDays(String(settings.windowHours / 24)); setRetention(String(settings.retentionDays)); } };
   const saved = prefs.view === 'saved';
-  // Failing sources: the status endpoint lists them on newer servers; older ones only flag them in the source list.
-  const failed: FailedSource[] = status.failed.length ? status.failed : Array.isArray(sources) ? sources.filter(s => s.error).map(s => ({ id: s.id, name: s.name, error: String(s.error) })) : [];
+  const sourcesHint = sources ? [t('settings.sources.count', { n: sources.total }), sources.attention ? attentionText(sources.attention) : ''].filter(Boolean).join(' · ') : t('settings.sources.loading');
   const preparation = status.preparation;
 
   return <>
@@ -238,14 +103,7 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
       </Section>
 
       <Section id="sources" title={t('settings.sources')} icon="rss">
-        <Attention failed={failed} retry={refresh} refreshing={refreshing} />
-        <AddSource added={source => { setSources(list => [...list.filter(s => s.id !== source.id), source].sort((a, b) => a.name.localeCompare(b.name))); sourcesChanged(); notify(t('toast.sourceAdded', { name: source.name })); }} />
-        <Suggestions notify={notify} />
-        <SourceList sources={sources} setSources={setSources} changed={sourcesChanged} notify={notify} />
-      </Section>
-
-      <Section id="x" title={t('settings.x')} icon="x">
-        <XAccounts config={config} changed={sourcesChanged} />
+        <button id="openSources" className="side-row side-link" onClick={openSources}><span><b>{t('settings.sources.open')}</b><small id="sourcesHint">{sourcesHint}</small></span><Icon name="chevronRight" size={18} className="disclosure" /></button>
       </Section>
 
       <Section id="ai" title={t('settings.ai')} icon="sparkles">
