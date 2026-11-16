@@ -6,13 +6,13 @@ import {Preparation} from './preparation';
 import {collect,seed,refreshHot,refreshSuggestions} from './collect';
 import {Suggestions} from './suggest';
 import {Hot} from './hot';
-import { join,resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Subprocess } from 'bun';
+import { app, config } from './config';
 const args=Bun.argv.slice(2);
 const option=(key:string,fallback:string)=>args.includes(key)?args[args.indexOf(key)+1]!:fallback;
-const app=resolve(import.meta.dir,'..');
-const data=option('--data-dir',join(process.env.HOME!,'.local/share/rmt-radar/data'));
-const directory=option('--state-dir',join(process.env.HOME!,'.local/share/rmt-radar/state'));
+const data=option('--data-dir',config.data);
+const directory=option('--state-dir',config.state);
 const store=new Store(directory);
 if(args.includes('--is-empty')){console.log(Number((store.db.query('SELECT COUNT(*) AS n FROM articles').get() as {n:number}).n)===0?'yes':'no');store.close();process.exit(0);}
 if(args.includes('--window-hours')){console.log(store.settings().windowHours);store.close();process.exit(0);}
@@ -20,8 +20,8 @@ if((args.includes('--import')||!store.meta('legacyImported'))&&await Bun.file(jo
 if(!store.meta('generatedAt')){store.setMeta('generatedAt',new Date().toISOString());store.setMeta('revision','0');}
 await seed(store,app,data);
 if(args.includes('--collect')){try{console.log(JSON.stringify(await collect(store,app,data,{noX:args.includes('--no-x'),noWeb:args.includes('--no-web'),noModel:args.includes('--no-model')})));}finally{store.close();}process.exit(0);}
-if(args.includes('--hot')){try{console.log(JSON.stringify(await refreshHot(store,app,process.env.RADAR_PYTHON||join(data,'../venv/bin/python'),true)));}finally{store.close();}process.exit(0);}
-if(args.includes('--suggest')){try{console.log(JSON.stringify(await refreshSuggestions(store,app,process.env.RADAR_PYTHON||join(data,'../venv/bin/python'),true)));}finally{store.close();}process.exit(0);}
+if(args.includes('--hot')){try{console.log(JSON.stringify(await refreshHot(store,app,config.python,true)));}finally{store.close();}process.exit(0);}
+if(args.includes('--suggest')){try{console.log(JSON.stringify(await refreshSuggestions(store,app,config.python,true)));}finally{store.close();}process.exit(0);}
 if(args.includes('--import')) {console.log(JSON.stringify({articles:store.db.query('SELECT COUNT(*) AS n FROM articles').get(),revision:store.meta('revision')}));store.close();process.exit(0);}
 const media=new Media(directory);
 const reader=new Reader(store);
@@ -29,37 +29,38 @@ const summaries=new Summaries(store);
 const preparation=new Preparation(store);
 const hot=new Hot(store);
 const suggestions=new Suggestions(store);
-const unit='rmt-radar-update.service';
-async function systemctl(...parts:string[]) {
-  const child=Bun.spawn([process.env.RADAR_SYSTEMCTL||'systemctl','--user',...parts],{stdout:'pipe',stderr:'pipe'});
-  const [text,code]=await Promise.all([new Response(child.stdout).text(),child.exited]);
-  return {text:text.trim(),code};
-}
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const integer=(value:string|null,fallback:number,min:number,max:number)=>{
   if(value===null)return fallback;
   const n=Number(value);if(!Number.isInteger(n)||n<min||n>max)throw new Error('Invalid number');return n;
 };
-let refreshCache={at:0,state:'idle'};
-async function refreshState(){
-  if(Date.now()-refreshCache.at<1500)return refreshCache.state;
-  try{const {text}=await systemctl('is-active',unit);refreshCache={at:Date.now(),state:['activating','active','reloading'].includes(text)?'running':text==='failed'?'failed':'idle'};}catch{refreshCache={at:Date.now(),state:'failed'};}
-  return refreshCache.state;
+// Collections run as child processes ("--collect"), started by the scheduler or the Refresh button.
+let collecting:Subprocess|null=null,lastCollection:'idle'|'failed'='idle';
+function startCollection(){
+  if(collecting)return;
+  const command=process.env.RADAR_COLLECT_COMMAND?['sh','-c',process.env.RADAR_COLLECT_COMMAND]:[process.execPath,join(app,'src/server.ts'),'--state-dir',directory,'--data-dir',data,'--collect'];
+  collecting=Bun.spawn(command,{stdout:'inherit',stderr:'inherit',env:process.env});
+  void collecting.exited.then(code=>{lastCollection=code===0?'idle':'failed';collecting=null;});
 }
+const refreshState=async()=>collecting?'running':lastCollection;
 async function body(request:Request) {
   if(request.headers.get('X-Radar')!=='1'||!request.headers.get('Content-Type')?.startsWith('application/json'))throw new Error('Write requires JSON and X-Radar');
   const origin=request.headers.get('Origin');if(origin&&new URL(origin).host!==new URL(request.url).host)throw new Error('Foreign origin');
   const text=await request.text();if(text.length>256000)throw new Error('Request too large');
   const value=JSON.parse(text);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Expected object');return value;
 }
-/** systemd calendar for a refresh interval: every N hours on the hour, or 05:00 for a daily refresh. */
-export const calendar=(every:number,nightPause:boolean)=>`*-*-* ${refreshHours(every,nightPause).map(h=>String(h).padStart(2,'0')).join(',')}:00:00`;
-async function schedule(every:number,nightPause:boolean) {
+/** The next refresh: the next listed hour (every N hours, or 05:00 daily; none 23:00–05:00 with the night pause). */
+export function nextRefresh(every:number,nightPause:boolean,now=new Date()){
+  const hours=refreshHours(every,nightPause),next=new Date(now);next.setMinutes(0,0,0);
+  for(let i=0;i<48;i++){next.setHours(next.getHours()+1);if(hours.includes(next.getHours()))return next;}
+  return next;
+}
+let timer:ReturnType<typeof setTimeout>|undefined;
+function schedule(){
   if(process.env.RADAR_DISABLE_SCHEDULE==='1')return;
-  const path=join(process.env.HOME!,'.config/systemd/user/rmt-radar-update.timer.d');
-  mkdirSync(path,{recursive:true});
-  await Bun.write(join(path,'schedule.conf'),`[Timer]\nOnCalendar=\nOnCalendar=${calendar(every,nightPause)}\n`);
-  if((await systemctl('daemon-reload')).code!==0||(await systemctl('restart','rmt-radar-update.timer')).code!==0)throw new Error('Could not apply refresh schedule');
+  clearTimeout(timer);
+  const {refreshEvery,nightPause}=store.settings(),at=nextRefresh(refreshEvery,nightPause);
+  timer=setTimeout(()=>{startCollection();schedule();},Math.max(1000,at.getTime()-Date.now()));
 }
 function pendingArticle(id:string,retry=false){
   preparation.enqueue(id,1000,retry);
@@ -73,7 +74,7 @@ function articleSummary(id:string,retry=false){
   if(Number(store.meta('summaryBackoffUntil')||0)>Date.now()){preparation.enqueue(id,1000,retry);return json({error:'Summary service is temporarily unavailable. The article text remains available.'},503);}
   return pendingArticle(id,retry);
 }
-const server=Bun.serve({hostname:'127.0.0.1',port:integer(option('--port','3200'),3200,1,65535),idleTimeout:30,maxRequestBodySize:256000,
+const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integer(option('--port',String(config.port)),3200,1,65535),idleTimeout:30,maxRequestBodySize:256000,
   async fetch(request) {
     const response=await (async()=> {
     const url=new URL(request.url),path=url.pathname;
@@ -127,14 +128,13 @@ const server=Bun.serve({hostname:'127.0.0.1',port:integer(option('--port','3200'
           store.mark(value.ids,value.seen);return json({ok:true});
         }
         if(path==='/api/refresh'){
-          if(await refreshState()!=='running'&&(await systemctl('start','--no-block',unit)).code!==0)throw new Error('Could not start refresh');
-          refreshCache={at:Date.now(),state:'running'};return json({state:'running'});
+          startCollection();
+          return json({state:'running'});
         }
         if(path==='/api/settings'){
           const previous=store.settings();const next={windowHours:Number(value.windowHours),refreshEvery:Number(value.refreshEvery),nightPause:value.nightPause??previous.nightPause,retentionDays:Number(value.retentionDays??previous.retentionDays)};
           if(!Number.isInteger(next.windowHours)||next.windowHours<24||next.windowHours>2160||!REFRESH_EVERY.includes(next.refreshEvery))throw new Error('Invalid settings');
-          if(next.refreshEvery!==previous.refreshEvery||next.nightPause!==previous.nightPause)await schedule(next.refreshEvery,next.nightPause===true);
-          store.configure(next);return json(store.settings());
+          store.configure(next);if(next.refreshEvery!==previous.refreshEvery||next.nightPause!==previous.nightPause)schedule();return json(store.settings());
         }
         if(path==='/api/sources'){
           if(typeof value.id!=='string'||typeof value.enabled!=='boolean')throw new Error('Invalid source');
@@ -152,6 +152,17 @@ const server=Bun.serve({hostname:'127.0.0.1',port:integer(option('--port','3200'
     }
     return response;
   }});
-console.log(`Radar v2 ready on http://127.0.0.1:${server.port}`);
-function stop(){server.stop(true);store.close();process.exit(0);}
+console.log(`Radar ready on http://${server.hostname}:${server.port}`);
+// The reader worker prepares articles and summaries in the background; it is restarted if it stops.
+let worker:Subprocess|null=null,stopping=false;
+function startWorker(){
+  if(process.env.RADAR_NO_WORKER==='1'||stopping)return;
+  worker=Bun.spawn([process.execPath,join(app,'src/reader_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
+  void worker.exited.then(()=>{worker=null;if(!stopping)setTimeout(startWorker,5000);});
+}
+startWorker();
+schedule();
+// A refresh missed while Radar was not running (the last one is older than the interval) happens now.
+if(process.env.RADAR_DISABLE_SCHEDULE!=='1'&&Date.now()-Date.parse(store.meta('generatedAt')||'0')>store.settings().refreshEvery*3600000)startCollection();
+function stop(){stopping=true;clearTimeout(timer);worker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

@@ -1,3 +1,4 @@
+import {config} from './config';
 import {Preparation} from './preparation';
 import {Hot,modelPicker,readInterests} from './hot';
 import {Suggestions,modelRater} from './suggest';
@@ -59,7 +60,7 @@ export async function collect(store:Store,app:string,data:string,options:{noX?:b
         return {id:feed.id,records,etag:response.headers.get('etag'),modified:response.headers.get('last-modified'),error:null};
       }catch(error){return {id:feed.id,records:[],error:error instanceof Error?error.message:'Fetch failed'};}
     };
-    const python=process.env.RADAR_PYTHON||join(data,'../venv/bin/python');
+    const python=config.python;
     // YouTube's channel RSS stopped answering (404), so channels are listed through yt-dlp instead.
     const youtube=feeds.filter(f=>/youtube\.com\/feeds\/videos\.xml/.test(f.url));
     // Reddit answers 429 to quick successive requests, so its feeds go one at a time, 12 s apart; a refused
@@ -96,7 +97,7 @@ export async function collect(store:Store,app:string,data:string,options:{noX?:b
   }finally{store.db.query("UPDATE meta SET value='0' WHERE key='collectionLease' AND value=?").run(lease);}
 }
 
-export const interestsPath=()=>process.env.RADAR_INTERESTS||join(process.env.HOME!,'.config/rmt/radar-interests.md');
+export const interestsPath=()=>config.interests;
 /** Hourly refreshes would otherwise spend a model call on an unchanged archive: pick only after new data. */
 export async function refreshHot(store:Store,app:string,python:string,force=false,sinceRevision=Number(store.meta('revision')||0)){
   // created_revision marks articles first seen by the latest collection; no new AI article, no new pick.
