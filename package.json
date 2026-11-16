@@ -23,7 +23,8 @@
     "check": "tsc --noEmit",
     "test": "bun test src",
     "test:ui": "node tests/ui.mjs",
-    "test:perf": "bun tests/perf.ts"
+    "test:perf": "bun tests/perf.ts",
+    "docs:shots": "bun docs/assets/src/shots.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

@@ -1,103 +1,68 @@
 # Stillfeed
 
-A personal, self-hosted reader for AI and data-engineering news. Stillfeed collects articles, YouTube videos and
-X posts from the sources you follow into one quiet, phone-friendly timeline, keeps only what is relevant, and
-lets an AI summarize what you open, in your language.
+**Keep up with AI and data engineering in ten minutes a day: one private feed instead of fifty tabs.**
 
-- **Feed**: one timeline of articles, videos and X posts. What you have seen leaves on the next load, so
-  the feed always shows what is new.
-- **Hot**: a handful of items you should not miss today, picked by AI against a plain-language description of
-  your interests. An item stays until you open or dismiss it.
-- **Saved**: bookmarks, kept forever with their text.
-- **Reader**: clean article text, YouTube transcripts and X Articles, with a three-point AI summary in the
-  language you choose.
-- **Sources**: about 70 AI and data blogs, 50 YouTube channels and nine news aggregators out of the box
-  (Hacker News, GitHub Trending, Product Hunt and others). Add any RSS/Atom/JSON feed, website or YouTube
-  channel from the sidebar, or follow X accounts.
-- **Relevance**: a keyword filter keeps AI and data-engineering items; an optional model rescues what the
-  keywords miss.
-- **Suggestions**: accounts and sites your sources keep citing, rated by AI, added only when you say so.
-- **Private by default**: one process and one SQLite file on your machine. No account, no telemetry.
+![Stillfeed: Keep up with AI and data engineering in ten minutes a day. Three phones show the Hot tab, the feed and an article with its AI summary.](docs/assets/stillfeed-banner.png)
+
+<p align="center">
+  <a href="https://github.com/fyrr-ai/stillfeed/actions/workflows/ci.yml"><img src="https://github.com/fyrr-ai/stillfeed/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3b82f6?style=flat&amp;labelColor=27292f" alt="License: MIT"></a>
+  <a href="https://bun.sh"><img src="https://img.shields.io/badge/Runtime-Bun-3b82f6?style=flat&amp;labelColor=27292f" alt="Runtime: Bun"></a>
+  <a href="docs/configuration.md"><img src="https://img.shields.io/badge/Deploy-Self--hosted-3b82f6?style=flat&amp;labelColor=27292f" alt="Deploy: Self-hosted"></a>
+</p>
+
+Stillfeed collects the AI and data-engineering news you follow, keeps what is relevant and shows it in one
+calm, phone-first timeline. It points out the few things you should not miss and summarizes what you open,
+in your language. It runs on your own machine.
+
+[Quick start](#quick-start) · [Configuration](docs/configuration.md) · [How it works](#how-it-works) · [Development](docs/development.md)
+
+## Why Stillfeed
+
+- **Save time.** About 70 blogs, 50 YouTube channels, 9 news aggregators and 410 X accounts arrive in one
+  feed. What you have seen leaves, so every visit shows only what is new.
+- **Never miss what matters.** Hot picks a handful of items each day against your own description of your
+  interests, and tells you why each one matters to you.
+- **Read less, understand more.** Articles, video transcripts and X Articles open as clean text with a
+  three-point AI summary in the language you choose.
+- **Private and yours.** One process and one SQLite file on your machine. No account, no telemetry. Use
+  Anthropic, any OpenAI-compatible API (including local models through Ollama), the Codex CLI, or no AI at all.
+
+![Three phones: Hot shows picks with the reason each matters, Feed shows articles and X posts, Saved keeps bookmarks.](docs/assets/stillfeed-phones.png)
+
+It is fast on a phone: the first load is about 110 KB, and the app scores 100 in Lighthouse on desktop.
+
+## How it works
+
+1. **Connect your sources.** Start with the curated defaults, add any feed, website or YouTube channel by
+   its address, and follow X accounts by handle.
+2. **Stillfeed filters and ranks.** Every two hours it collects new items, keeps those about AI and data
+   engineering, and picks Hot against your interests.
+3. **Read and get summaries.** Open an item for its clean text and summary. Save what you want to keep.
+
+![How Stillfeed works: sources flow into a collection that filters and ranks them, everything is stored in one SQLite file, a background reader prepares texts and summaries, and the web app reads from SQLite. An AI provider is optional.](docs/assets/stillfeed-architecture.png)
 
 ## Quick start
 
-Requires [Bun](https://bun.sh) 1.4 or newer.
+You need [Bun](https://bun.sh) 1.4 or newer.
 
 ```sh
-git clone https://github.com/<you>/stillfeed && cd stillfeed
+git clone https://github.com/fyrr-ai/stillfeed && cd stillfeed
 bun install --frozen-lockfile
-cp .env.example .env        # optional: add an AI key, pick a summary language
-bun start                   # http://127.0.0.1:3200
+cp .env.example .env    # optional: add an AI key and your summary language
+bun start               # open http://127.0.0.1:3200
 ```
 
-The first collection starts on its own; afterwards Stillfeed refreshes every two hours (configurable, with an
-optional night pause) and you can pull to refresh at any time. Open it on your phone through your own
-reverse proxy, Tailscale or SSH tunnel; Stillfeed has no login, so do not expose it to the internet directly.
+The first collection starts on its own. Stillfeed has no login, so reach it from your phone through
+Tailscale, an SSH tunnel or your own reverse proxy rather than the open internet. Docker, AI providers,
+your interests and sources are covered in [Configuration](docs/configuration.md).
 
-With Docker:
+## Documentation
 
-```sh
-docker build -t stillfeed .
-docker run -d -p 127.0.0.1:3200:3200 -v stillfeed:/data --env-file .env stillfeed
-```
-
-## Configuration
-
-Everything is optional. Settings come from environment variables or a `.env` file in `STILLFEED_HOME`
-(default `~/.local/share/stillfeed`) or the working directory; see [.env.example](.env.example).
-
-### AI provider
-
-| Provider | Set | Default model |
-|---|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
-| OpenAI or any OpenAI-compatible server (OpenRouter, Ollama, vLLM, LM Studio) | `OPENAI_API_KEY`, `STILLFEED_LLM_MODEL`, optionally `OPENAI_BASE_URL` | none, set one |
-| [Codex CLI](https://github.com/openai/codex) (uses your ChatGPT plan) | `STILLFEED_LLM=codex` | `gpt-6-luna` |
-
-`STILLFEED_LLM_MODEL` chooses the model for summaries, Hot and suggestions, and `STILLFEED_LLM_FAST_MODEL` the one
-for the relevance triage, which runs on every refresh (for example `claude-haiku-5-5` to keep it cheap). With
-Anthropic models that support it, Stillfeed opts into the API's server-side fallback, so a request the model
-declines is retried on a fallback model in the same call. Without any provider Stillfeed still collects, filters
-by keywords and shows articles; summaries, Hot and suggestions stay off.
-
-### Summary language
-
-`STILLFEED_LANGUAGE` sets the language of summaries, Hot reasons and suggestion reasons, for example `Czech`,
-`German` or `Japanese` (default `English`). The interface itself is English and ready for translation
-(`ui/i18n.ts`).
-
-### Your interests
-
-Copy [interests.example.md](interests.example.md) to `~/.local/share/stillfeed/interests.md` and describe what
-you care about in your own words. Hot and the source suggestions read it on each refresh.
-
-### Sources
-
-- Default feeds: [feeds/follow.opml](feeds/follow.opml) and YouTube channels in
-  [feeds/channels.json](feeds/channels.json). Feeds marked `ai="1"` are trusted as AI sources; others go
-  through the relevance filter.
-- Your own feeds: add them in the sidebar, or put an OPML file at `~/.local/share/stillfeed/feeds.opml`.
-- X accounts: add handles in the sidebar or one per line in `~/.local/share/stillfeed/x-accounts.txt`. X needs a
-  [SocialData](https://socialdata.tools) key (`SOCIALDATA_API_KEY`); following ~150 accounts costs about
-  $3 a month.
-
-Every source is added once: if you switch a default off or remove it, it stays that way.
-
-## Development
-
-```sh
-bun install --frozen-lockfile
-bun run check      # TypeScript
-bun test src       # unit tests
-bun run build      # rebuild assets/build and index.html after UI changes (they are committed)
-bun run test:perf  # speed budgets: first-paint download and API latency
-bun run dev        # server with a separate state directory
-```
-
-The server is `src/server.ts` (Bun, SQLite through `bun:sqlite`). A collection runs as a child process
-(`bun src/server.ts --collect`) and a reader worker (`src/reader_worker.ts`) prepares articles and summaries
-in the background, so no HTTP request ever waits for a model. The UI is React and
-[UI SDK](https://www.npmjs.com/package/@ui-sdk/react) in `ui/`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- [Configuration](docs/configuration.md): AI providers, summary language, your interests, sources, X, Docker
+  and every setting.
+- [Development](docs/development.md): tests, speed budgets, the build and how the pieces fit together.
+- [Contributing](CONTRIBUTING.md): ground rules for changes and translations.
 
 ## License
 
