@@ -363,6 +363,8 @@
       <outline text="Sean Goedecke" title="Sean Goedecke" type="rss" xmlUrl="https://www.seangoedecke.com/rss.xml" htmlUrl="https://seangoedecke.com" />
       <outline text="Martin Alderson" title="Martin Alderson" type="rss" xmlUrl="https://martinalderson.com/feed.xml" htmlUrl="https://martinalderson.com" />
       <outline text="Entropic Thoughts" title="Entropic Thoughts" type="rss" xmlUrl="https://entropicthoughts.com/feed.xml" htmlUrl="https://entropicthoughts.com" />
+      <outline text="aatishb.com" title="aatishb.com" type="rss" xmlUrl="https://aatishb.com/blog/rss.xml" htmlUrl="https://aatishb.com" />
+      <outline text="delta.dev" title="delta.dev" type="rss" xmlUrl="https://delta.dev/blog.rss" htmlUrl="https://delta.dev" />
       <outline text="Louis Bouchard" title="Louis Bouchard" ai="1" type="rss" xmlUrl="https://www.louisbouchard.ai/rss.xml" htmlUrl="https://www.louisbouchard.ai/" />
       <outline text="Yoshua Bengio" title="Yoshua Bengio" ai="1" type="rss" xmlUrl="https://yoshuabengio.org/feed" htmlUrl="https://yoshuabengio.org/" />
     </outline>

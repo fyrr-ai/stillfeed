@@ -1,35 +1,414 @@
-# Default X accounts (one handle per line, "#" starts a comment). Added once; switch them off in the sidebar.
+# Default X accounts: people and teams building AI, developer tools and data infrastructure.
+# One handle per line, "#" starts a comment. Each is added once; switch any off on the Sources page.
 # Your own list goes to ~/.local/share/stillfeed/x-accounts.txt.
 
-# Labs and model makers
-OpenAI
-AnthropicAI
-GoogleDeepMind
-GeminiApp
-AIatMeta
-MistralAI
-deepseek_ai
-Alibaba_Qwen
-huggingface
-
-# People building and explaining AI
-karpathy
-simonw
-swyx
-natolambert
-emollick
-OfficialLoganK
+0xblacklight         # Kyle Mistele 🏴‍☠️
+0xcgn                # cagin
+_3l3ktr4_            # elektra
+__AlexMonahan__      # Alex Monahan
 _akhaliq
+_Blef                # Christophe
+_can1357             # Can Bölük
+_catwu               # Cat Wu
+_philschmid          # Philipp Schmid
+adamdotdev           # Adam
+addyosmani           # Addy Osmani
+agentnative_         # Agent Native
+AIatMeta
+AiBreakfast          # AI Breakfast
+aidotengineer
+AirbyteHQ            # Airbyte
+aisdk                # AI SDK
+aleksizy             # Alex Izydorczyk
+alexalbert__         # Alex Albert
+alexbdebrie          # Alex DeBrie
+AlexiGlad            # Alexi Gladstone
+alexkyllo            # Exploratory Data Alex
+Alibaba_Qwen         # Qwen
+AMdatalakehouse      # Alex Merced | Open Data Lakehouse Advocate
+andreasklinger       # Andreas Klinger 🦾
+andrewlamb1111       # Andrew Lamb
 AndrewYNg
-hwchase17
-jerryjliu0
-theo
-GergelyOrosz
-
-# Data engineering
-databricks
-Snowflake
-dbt_labs
-motherduck
+andy_pavlo           # Andy Pavlo (@andypavlo.bsky.social)
+animemixxx           # Anime mix
+anomalyco            # Anomaly
+antfu7               # Anthony Fu 🦋 @antfu.me
+AnthropicAI          # Anthropic
+antigravity          # Google Antigravity
+AntithesisHQ         # Antithesis
+antonio9387          # Antonio
+antonycourtney       # Antony Courtney
+ApacheArrow
+ApacheIceberg        # Apache Iceberg
+apachesuperset       # Apache Superset
+apmassaro3           # Paul Massaro, PhD
+aporia9n             # Aporia
+argoproj
+aripalo              # Ari Palo
+ArtificialAnlys      # Artificial Analysis
+asciimike            # Mike McDonald
+askalphaxiv          # alphaXiv
+AssemblyAI
+athasdev             # athas.dev
+augmentcode          # Augment Code
+Austin_Way           # Austin Way
+badlogicgames        # Mario Zechner
+BaiduResearch        # Baidu Research
+Bakkt
+barrald              # Barry McCardel
+BaselIsmail          # Basel Ismail
+bcherny              # Boris Cherny
+bctallis             # Benjamin Tallis 🇺🇦
+bedesqui             # Igor bedesqui
+beginbot             # beginbot 🃏
+bendnorman           # Bennett Dell Norman
+bennstancil          # Benn Stancil
+bentlegen            # Ben Vinegar
+bernhardsson         # Erik Bernhardsson
+BHolmesDev           # Ben Holmes
+bigeagle_xd          # 熊师傅 weight decay 了吗
+bitandbang           # tierney cyren Protected account
+blaxelAI             # Blaxel
+BniWael              # ProxySoul
+BoilingData
+BrooklynData         # Brooklyn Data Co. (a Velir company)
+browser_use          # Browser Use
+brsabel              # bersabel
+burcs                # brandon
+chipro               # Chip Huyen
+chris1610            # Chris Moffitt
+chrismunns           # Chris Munns
+CipcicMarijan        # Marijan Cipcic
+claudeai             # Claude
+ClaudeCodeLog        # Claude Code Changelog
+ClaudeDevs
 ClickHouseDB
+coalesceconf         # Coalesce
+code                 # Visual Studio Code
+codenoodle           # Nate May
+codeseal             # Matthew Seal
+codewithanthony      # Anthony Sottile
+coffingould          # Eric Coffin-Gould
+cognition
+compilerqueen        # Ashley Sherwood (she/her)
+contextkingceo       # Nishkarsh
+criccomini           # Chris
+ctatedev             # Chris Tate
+cursor_ai            # Cursor
+Cybernews
 dagster
+dani_avila7          # Daniel San
+daniel_heres         # Daniël Heres
+DanielGri            # Daniel Griesser
+dart_lang            # Dart Language
+DatabendLabs         # Databend
+databricks
+DataEngPodcast
+DataGwen             # Gwen
+davidcrawshaw        # David Crawshaw
+davidgasquez         # David Gasquez
+davis7               # Ben Davis
+daytonaio            # Daytona
+dbrtly_              # Daniel Bartley
+dbt_labs             # dbt Labs
+deepseek_ai          # DeepSeek
+dexhorthy            # dex
+dhh
+digital_objects      # Yuk Hui
+dillon_mulroy        # Dillon Mulroy
+djrosenthal          # David J Rosenthal
+dmwlff               # Adam Wolff
+DODOREACH            # dodo-reach 🦤
+DominikTornow        # Dominik Tornow
+doodlestein          # Jeffrey Emanuel
+drewbanin            # drewfus
+DSJayatillake        # David Jayatillake ✝️
+DSPyOSS              # DSPy
+duckdb
+ducklabs_com         # DuckLabs
+eatonphil            # Phil Eaton
+emollick
+enconvo_ai           # Enconvo AI
+EngrammeHQ           # Engramme
+EntireHQ             # Entire
+ergestx              # Ergest Xheblati Protected account
+ericalouie           # erica louie 🐉
+evidence_dev         # evidence
+exolabs              # EXO Labs
+EyalToledano         # Eyal Toledano
+FactoryAI            # Factory
+farshadsarrafi       # 𝗙𝗮𝗿𝘀𝗵𝗮𝗱
+felipehoffa          # Felipe Hoffa
+Firebase
+FireworksAI_HQ       # Fireworks
+FlutterDev           # Flutter
+flutteriodaily       # Flutter Daily
+FlutterWk            # Flutter Weekly
+FlyaKiet             # Kiet
+Folke                # Folke Lemaitre
+franzbruckhoff       # Franz Bruckhoff
+frasergeorgew        # George Fraser
+FredKSchott          # fks
+GabriellaG439        # gabby
+gcloudpartners       # Google Cloud Partners
+gdb                  # Greg Brockman
+GeminiApp            # Google Gemini
+GergelyOrosz         # Gergely Orosz
+getdbt               # dbt
+ggerganov            # Georgi Gerganov
+ghalimi              # Ismael Ghalimi
+ghuntley             # Geoffrey Huntley
+github
+googleaidevs         # Google AI Developers
+googlecloud          # Google Cloud
+GoogleCloudTech      # Google Cloud Tech
+GoogleDeepMind       # Google DeepMind
+gorkem               # Gorkem Yurtseven
+goserverless         # Serverless
+gvanrossum           # Guido van Rossum
+HamelHusain          # Hamel Husain
+hashboardhq          # Hashboard
+HashiCorp            # HashiCorp, an IBM Company
+haveanicedavid       # David Daniel
+hcompany_ai          # H
+heyandras            # Andras Bacsai
+himanshutwtxs        # Himanshu
+holanda_pe           # Pedro Holanda
+holdenmatt           # Matt Holden
+HoloMarkeD           # Mark Edmondson
+housecor             # Cory House
+hqfabi               # Fabi.ai
+htmx_org             # htmx.org / CEO of htmx 4 (same thing)
+huggingface          # Hugging Face
+hwchase17            # Harrison Chase
+hydra_db             # HydraDB
+iamdavidhill         # David Hill
+iamjosepferrer       # Josep Ferrer
+IanCal               # @IanCal@data-folks.masto.host
+ianwhitestone        # ian.sql
+iavins               # v
+IbisData             # Ibis
+ibuildthecloud       # Darren Shepherd
+imrobertyi           # Robert Yi 🐳
+IsobelYeung          # Isobel Yeung
+itsclelia            # Clelia Bertelli (🦀/acc)
+jarredsumner         # Jarred Sumner
+jasnonaz             # Jason Ganz
+Jason                # @jason
+jasonkneen           # Jason Kneen
+jasonkwon            # Jason Kwon
+jayair               # Jay
+jennapederson        # Jenna Pederson
+jeremyphoward        # Jeremy Howard
+jerryjliu0
+jessitron            # Jessica Kerr
+jhleath              # Hunter Leath
+joelbqz              # Joel
+joelhooks            # joel ⛈️
+joellabes            # @joellabes@mastodon.nz
+johnmyleswhite       # John Myles White
+johnrush             # John Rush
+JokingRajat          # Rajat Kulkarni
+jonas_nobile         # Jonas Nobile
+josh_wills           # JosH100
+JoshOlufemi          # Josh Olufemi
+jrdntgn              # Jordan Tigani
+jtcohen6             # jer co Protected account
+jthandy              # Tristan Handy
+julianhyde           # Julian Hyde
+justinmk
+justinsunyt          # justin
+justsisyphus         # Sisyphus Labs
+karpathy             # Andrej Karpathy
+kcosr                # Kevin
+kennethnym           # kenneth
+kentcdodds           # Kent C. Dodds 🐨
+kepano
+Kimi_Moonshot        # Kimi.ai
+kmdrfx               # kmdr
+kotekjedi_ml         # Alexander Panfilov
+KroonenburgRyan      # Ryan Kroonenburg
+lais_bsc             # Laís Carvalho
+LaudeInstitute       # Laude Institute
+leerob               # Lee Robinson
+levelsio             # @levelsio
+LignoL23             # voe.lo
+lilianweng           # Lilian Weng
+LLMJunky             # am.will
+lloydtabb            # lloyd tabb
+louisgray            # Louis Gray Protected account
+lucaronin            # Luca Rossi ꩜
+lunatask
+maartenbreddels      # Maarten A. Breddels
+marimo_io            # marimo
+mark_grover          # Mark Grover
+marksaroufim         # Mark Saroufim
+matsonj              # Jacob Matson
+mattpocockuk         # Matt Pocock
+mattzcarey           # Matt Carey
+Mause_me             # Elliana May - @Mause@cloudisland.nz
+mckaywrigley         # Mckay Wrigley
+medriscoll           # Michael E. Driscoll
+mehd_io              # Mehdi Ouazza
+melvynx              # Melvyn • Builder
+merettm              # Jakub Pachocki
+metabase
+microHQ              # Micro™
+Mike_Kaminsky        # Michael Kaminsky
+mikeclarke           # Mike Clarke
+mikeyobrienv         # Mikey O'Brien
+mim_djo              # Mim
+mistercrunch         # Maxime Beauchemin
+MistralAI            # Mistral AI
+mitchellh            # Mitchell Hashimoto
+mitsuhiko            # Armin Ronacher ⇌
+modal
+modelbit
+modemdev             # Modem
+moderndatastack      # Modern Data Stack
+motherduck
+mraasveldt           # Mark Raasveldt
+mrbutttons           # Yash
+NateNunta            # Nate Boss Nunta
+NateSooter           # Nate Sooter ⛳️
+NathanFlurry         # Nathan Flurry 🔩
+natolambert          # Nathan Lambert
+NaveenSpark          # Naveen 🦅 (🖖🏾,🖖🏾)
+NebulaAI             # Nebula
+neogoose_btw         # Dmitriy Kovalenko
+nickursa             # nick.json.gz
+NickVanWig           # Nick Van Wiggeren
+nicoalbanese10       # Nico Albanese
+nicopreme            # Nico Bailon
+nicoritschel         # Nico Ritschel
+NousResearch         # Nous Research
+nua_site             # Nua Site
+OfficialLoganK       # Logan Kilpatrick
+ollama
+open_lakehouse       # Open Lakehouse Community
+OpenAI
+OpenAIDevs           # OpenAI Developers
+openclaw             # OpenClaw🦞
+opencode
+OpenHandsDev         # OpenHands
+ornith_              # Ornith
+p0                   # Parallel Web Systems
+pathway_com          # Pathway (www.pathway.com)
+paulabartabajo_      # Pau Labarta Bajo
+philippemizrahi      # Phil Mizrahi
+photoft45            # Tao Feng
+PlanetScale
+poteto               # Lauren Tan
+PowersetRes          # Powerset Research
+preset_data          # Preset
+PuffinDB
+pvncher              # eric provencher
+pwang                # Peter Wang 🦋
+r_FlutterDev         # r/FlutterDev
+rasbt                # Sebastian Raschka
+rauchg               # Guillermo Rauch
+raycast
+realmcore_           # akira
+realrichwebb         # Rich Webb
+RealWebPageTest      # WebPageTest™
+rekram11             # Aiden Cline
+remix_run            # Remix 💿
+Replit               # Replit ⠕
+RepoPrompt           # Repo Prompt
+resend
+RhysSullivan         # Rhys
+RillData             # Rill Data
+RocketMoneyApp       # Rocket Money
+rovarma              # Ritesh Oedayrajsingh Varma
+RustTrending         # Rust Trending
+ryancarson           # Ryan Carson
+ryaneshea            # Ryan Shea
+ryanvogel            # vogel
+ryguyrg              # ryan boyd
+ryxcommar            # Senior PowerPoint Engineer
+S3rverless           # Serverless
+saasmakermac         # Mac Martine
+saddle_paddle        # Satya Patel
+saeed_vz             # Saeed Vaziry ⚡
+sama                 # Sam Altman
+samnewman            # Sam Newman
+samuellhuber         # Samuel 🦤 (🧱,🔥)
+sarahcat21           # Sarah Catanzaro
+sashimikun_void      # Sheing Ng
+satyanadella         # Satya Nadella
+scaling01            # Lisan al Gaib
+seltugba_            # Tuğba Sel
+sergical             # Serge
+sethrosen            # Seth Rosen
+shadcn
+shasbe               # Sudhir Hasbe
+shcallaway           # Sherwood
+shipstudio_app       # Ship Studio
+sidorszymon          # Szymon Sidor
+SIGKITTEN
+simonw               # Simon Willison
+skamille             # Camille Fournier Protected account
+SlackHQ              # Slack
+Snowflake
+SnowflakeEng         # Snowflake Engineering
+so_sthbryan          # Bryan
+solara_dev           # Solara
+spolsky              # Joel Spolsky
+sqs                  # Quinn Slack
+steipete             # Peter Steinberger 🦞
+Steve_Yegge          # Steve Yegge
+stolinski            # Scott Tolinski
+stormhur             # storm
+Substack
+superdoteng          # super.engineering
+swyx
+TailarkUI            # Tailark
+Tamurphy             # Taylor A Murphy
+tanmays              # Tanmay
+techfrenAJ           # Tech Friend AJ
+teej_dv              # teej dv 🔭
+teej_m               # » teej
+thdxr                # dax
+the_cube_dev         # Cube
+TheEthanDing         # ethan ding 📊
+TheGingerBill        # gingerBill
+theo                 # Theo - t3.gg
+theplgeek            # Ben Williams
+ThePrimeagen
+thetinot             # Tino Tereshko 🇺🇦
+thorstenball         # Thorsten Ball
+threepointone        # sunil pai
+thsottiaux           # Tibo
+tldrnewsletter       # TLDR Newsletter
+tobi                 # tobi lutke
+TomasReimers         # Tomas Reimers
+trq212               # Thariq
+tryOctarine          # Octarine
+typefully
+useblacksmith        # Blacksmith
+usekernel            # KERNEL
+v0
+varun_mathur         # Varun
+vercel
+VictorTaelin         # Taelin
+visvijay1            # Vishnu Vijayakumar
+vkhosla              # Vinod Khosla
+voidzerodev          # VoidZero
+VoltronData          # Voltron Data
+Vtrivedy10           # Viv
+warpdotdev           # Warp
+WebbTelescopeUK
+wesbos               # Wes Bos
+wesmckinn            # Wes McKinney
+wgw_eth              # WGW ☂️ oss/acc
+whatisakatie         # Katie
+wileycwj             # Wiley Jones @ DOSS
+willmcgugan          # Will McGugan
+wissi_analytics      # Mehdi Oudjida
+wslulciuc            # Willy Lulciuc
+wunderwuzzi23        # Johann Rehberger
+xingyaow_            # Xingyao Wang
+zachbruggeman        # Zach Bruggeman
+zachlloydtweets      # Zach Lloyd
+Zai_org              # Z.ai
+zeddotdev            # Zed

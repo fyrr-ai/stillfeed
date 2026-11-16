@@ -25,11 +25,12 @@ export function insertFeed(store: Store, url: string, title: string, ai: boolean
 export function seedOpml(store: Store, xml: string, ai?: boolean) {
   for (const item of subscriptions(xml)) seedOnce(store, 'feed::' + item.url, () => insertFeed(store, item.url, item.title, ai ?? item.ai));
 }
-/** One handle per line; "#" starts a comment; "@" is optional. */
+/** One handle per line; "@" is optional; a comment after "#" on the same line is the display name. */
 export function seedAccounts(store: Store, text: string) {
   for (const line of text.split('\n')) {
-    const handle = line.replace(/#.*/, '').trim().replace(/^@/, '');
-    if (HANDLE.test(handle)) seedOnce(store, 'x::' + handle.toLowerCase(), () => store.db.query('INSERT OR IGNORE INTO x_accounts(handle,name) VALUES(?,?)').run(handle, handle));
+    const [value = '', comment = ''] = line.split(/#(.*)/s);
+    const handle = value.trim().replace(/^@/, ''), name = comment.trim().slice(0, 100) || handle;
+    if (HANDLE.test(handle)) seedOnce(store, 'x::' + handle.toLowerCase(), () => store.db.query('INSERT OR IGNORE INTO x_accounts(handle,name) VALUES(?,?)').run(handle, name));
   }
 }
 

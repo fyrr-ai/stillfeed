@@ -52,6 +52,7 @@ test('X accounts: file seeding once, toggling and adding by handle', () => {
   const f = fixture(); try {
     seedAccounts(f.store, '@karpathy\n# comment\nsimonw # Simon\nnot a handle!\n');
     expect(accounts(f.store).map(a => a.handle)).toEqual(['karpathy', 'simonw']);
+    expect(accounts(f.store).find(a => a.handle === 'simonw')?.name).toBe('Simon');
     setAccount(f.store, '@karpathy', false); seedAccounts(f.store, 'karpathy');
     expect(accounts(f.store).find(a => a.handle === 'karpathy')?.enabled).toBe(false);
     setAccount(f.store, 'swyx', true); expect(accounts(f.store)).toHaveLength(3);
