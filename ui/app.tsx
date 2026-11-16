@@ -13,9 +13,10 @@ const loadDetail = () => import('./detail'), loadSidebar = () => import('./sideb
 const Detail = lazy(() => loadDetail().then(m => ({ default: m.Detail })));
 const Sidebar = lazy(() => loadSidebar().then(m => ({ default: m.Sidebar })));
 const SourcesPage = lazy(() => loadSources().then(m => ({ default: m.SourcesPage })));
-// Once the feed is on screen and the browser is idle, fetch them anyway, so the first tap never waits.
+// A second after the feed is on screen, when the browser is idle, fetch them anyway, so the first tap never
+// waits; earlier, they would compete with the feed itself for a slow phone's bandwidth.
 const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 4000 }) : setTimeout(work, 1500);
-addEventListener('load', () => idle(() => { void loadDetail(); void loadSidebar(); void loadSources(); void loadChrome(); }), { once: true });
+const prefetch = () => Promise.all([loadChrome(), loadDetail(), loadSidebar(), loadSources()]);
 import {
   api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
   type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
@@ -77,9 +78,10 @@ export function App() {
   const [optionsOpen, setOptionsOpenState] = useState(false);
   /** A toast mounts the toast region first if its module has not arrived yet. */
   const notify: typeof toast = (text, options) => { setChromeReady(true); toast(text, options); };
+  // Until the drawer's code is here, the menu is a plain button that loads it.
+  const menuButton = <button id="optionsButton" className="icon-button" aria-label={t('options.open')} title={t('options.open')} aria-haspopup="dialog" onClick={() => openOptions()}><Icon name="menu" /></button>;
   // UI SDK's drawer and toasts mount once their module is here (idle prefetch, a toast, or the menu button).
   const [chromeReady, setChromeReady] = useState(false);
-  useEffect(() => { const ready = () => setChromeReady(true); addEventListener('load', () => idle(() => void loadChrome().then(ready)), { once: true }); if (document.readyState === 'complete') idle(() => void loadChrome().then(ready)); }, []);
   const [settings, setSettingsState] = useState<Settings>({ windowHours: 72, refreshEvery: 2, nightPause: true, retentionDays: 30 });
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState('');
@@ -475,9 +477,11 @@ export function App() {
       try {
         const settingsLoaded = api<Settings>('/api/settings').then(setSettings);
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
-        void loadLibrary();
         // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
         await loadView(loadSession('stillfeed-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
+        // The feed is on screen: now the rest (sources summary, drawer, reader) without delaying it.
+        void loadLibrary();
+        setTimeout(() => idle(() => void prefetch().then(() => setChromeReady(true))), 1000);
         await settingsLoaded;
         void loadHot();
         await refreshStatus(); void flush(); save(); await followRoute();
@@ -580,8 +584,7 @@ export function App() {
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          <button id="optionsButton" className="icon-button" aria-label={t('options.open')} title={t('options.open')} aria-haspopup="dialog" aria-expanded={optionsOpen} onClick={() => openOptions()}><Icon name="menu" /></button>
-          {chromeReady && <Suspense fallback={null}><OptionsDrawer open={optionsOpen} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
+          {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
             if (!open && r.sourcesOpen) document.getElementById('sourcesTitle')?.focus({ preventScroll: true });
