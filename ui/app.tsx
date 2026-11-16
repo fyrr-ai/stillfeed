@@ -13,6 +13,7 @@ const loadDetail = () => import('./detail'), loadSidebar = () => import('./sideb
 const Detail = lazy(() => loadDetail().then(m => ({ default: m.Detail })));
 const Sidebar = lazy(() => loadSidebar().then(m => ({ default: m.Sidebar })));
 const SourcesPage = lazy(() => loadSources().then(m => ({ default: m.SourcesPage })));
+const SavedTopicsPanel = lazy(() => import('./saved-topics').then(m => ({ default: m.SavedTopicsPanel })));
 // A second after the feed is on screen, when the browser is idle, fetch them anyway, so the first tap never
 // waits; earlier, they would compete with the feed itself for a slow phone's bandwidth.
 const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 4000 }) : setTimeout(work, 1500);
@@ -87,6 +88,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState(prefs.q);
   const [headerHidden, setHeaderHidden] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && location.pathname === '/');
   const [hot, setHot] = useState<HotItem[]>([]);
   const [hotLoading, setHotLoading] = useState(true);
@@ -181,6 +183,7 @@ export function App() {
       else {
         const p = r.prefs;
         params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', p.hideSeen && p.view === 'feed' ? '1' : '0');
+        if (p.view === 'saved' && p.savedTopic) params.set('topic', p.savedTopic);
         // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
         if (r.feed && p.hideSeen && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
       }
@@ -222,7 +225,7 @@ export function App() {
       const node = list.querySelector<HTMLElement>(`[data-id="${id}"]`);
       if (node && !covered()) { expected = Math.round(node.getBoundingClientRect().top + scrollY - offset); window.scrollTo(0, expected); expected = scrollY; }
     });
-    observer.observe(list);
+    observer.observe(readerRef.current ?? list);
     addEventListener('touchstart', stop, { passive: true }); addEventListener('wheel', stop, { passive: true }); addEventListener('keydown', stop); addEventListener('scroll', onScroll, { passive: true });
     setTimeout(stop, 2500);
   }
@@ -455,6 +458,7 @@ export function App() {
       clearTimeout(saveTimer); saveTimer = setTimeout(() => l().save(), 150);
       // Like X: the bar slides away while reading down and returns on the first move up.
       const y = scrollY, delta = y - lastY; lastY = y;
+      setShowScrollTop(y > 300);
       if (y < 60) setHeaderHidden(false); else if (delta > 6) setHeaderHidden(true); else if (delta < -6) setHeaderHidden(false);
       // Coming back to the top takes in waiting updates without a tap.
       if (r.pendingUpdates && l().atTop() && !r.loading) l().applyUpdates();
@@ -501,31 +505,55 @@ export function App() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Pull to refresh at the top of the feed: the list follows the finger, then springs back.
-  // Plain touch events: a drag library would fight native scrolling here, and only touch can pull.
+  // Lock each touch to one direction: horizontal changes tabs, downward at the top refreshes.
+  // Plain touch events keep vertical scrolling native and motion out of the initial bundle.
   const refreshingRef = useRef(false); refreshingRef.current = status.refreshing;
   useEffect(() => {
     const reader = readerRef.current!;
-    let start: { x: number; y: number } | null = null, pulling = false, distance = 0;
-    const reset = () => { start = null; pulling = false; hint(null); pull(0, true); };
+    type Gesture = { x: number; y: number; id: number; mode: 'pending' | 'pull' | 'swipe'; canPull: boolean; dx: number; dy: number };
+    let gesture: Gesture | null = null;
+    const reset = () => { gesture = null; hint(null); pull(0, true); };
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0]!;
-      start = event.touches.length === 1 && scrollY <= 0 && unobscured() && !refreshingRef.current && gestureAllowed(event.target, touch.clientX) ? { x: touch.clientX, y: touch.clientY } : null;
-      pulling = false; distance = 0;
+      reset();
+      if (event.touches.length !== 1 || covered() || r.optionsOpen || r.confirmOpen || r.loading || r.restoring || !gestureAllowed(event.target, touch.clientX)) return;
+      gesture = { x: touch.clientX, y: touch.clientY, id: touch.identifier, mode: 'pending', canPull: scrollY <= 0 && unobscured() && !refreshingRef.current, dx: 0, dy: 0 };
     };
     const onMove = (event: TouchEvent) => {
-      if (!start) return;
-      const touch = event.touches[0]!, dx = touch.clientX - start.x, dy = touch.clientY - start.y;
-      if (event.touches.length > 1 || Math.abs(dx) > 65 || (!pulling && dy < 0) || (pulling && scrollY > 0)) { reset(); return; }
-      // Claim the gesture before Safari starts its own overscroll bounce.
-      if (!pulling && dy < 12) { if (dy > 0 && event.cancelable) event.preventDefault(); return; }
-      pulling = true; distance = dy;
+      if (!gesture) return;
+      if (event.touches.length !== 1 || event.touches[0]!.identifier !== gesture.id || covered() || r.optionsOpen || r.confirmOpen) { reset(); return; }
+      const touch = event.touches[0]!, dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
+      gesture.dx = dx; gesture.dy = dy;
+      if (gesture.mode === 'pending') {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 12) {
+          if (gesture.canPull && dy > 0 && dy > Math.abs(dx) && event.cancelable) event.preventDefault();
+          return;
+        }
+        if (Math.abs(dx) > Math.abs(dy) * 1.5) gesture.mode = 'swipe';
+        else if (dy > Math.abs(dx) * 1.5 && gesture.canPull) gesture.mode = 'pull';
+        else { reset(); return; }
+      }
+      if (gesture.mode === 'swipe') {
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
+      if (Math.abs(dx) > 65 || dy < 0 || scrollY > 0) { reset(); return; }
       if (event.cancelable) event.preventDefault();
       hint(dy >= COMMIT ? t('gesture.release') : t('gesture.pull'), dy, 'pull');
       if (!reducedMotion.matches) pull(resist(dy) * .6);
     };
-    const onEnd = () => { const go = pulling && distance >= COMMIT; if (start || pulling) reset(); if (go) { void latest.current.reloadFresh(); void latest.current.refresh(); } };
-    const onCancel = () => { if (start || pulling) reset(); };
+    const onEnd = () => {
+      const ended = gesture; reset();
+      if (!ended || covered() || r.optionsOpen || r.confirmOpen) return;
+      if (ended.mode === 'pull' && ended.dy >= COMMIT) { void latest.current.reloadFresh(); void latest.current.refresh(); }
+      if (ended.mode === 'swipe' && Math.abs(ended.dx) >= COMMIT && Math.abs(ended.dx) > Math.abs(ended.dy) * 1.5) {
+        const tabs = ['hot', 'feed', 'saved'] as const;
+        const current = r.hotOpen ? 'hot' : r.prefs.view;
+        const next = tabs[tabs.indexOf(current) + (ended.dx < 0 ? 1 : -1)];
+        if (next) openTab(next);
+      }
+    };
+    const onCancel = () => reset();
     reader.addEventListener('touchstart', onStart, { passive: true });
     reader.addEventListener('touchmove', onMove, { passive: false });
     reader.addEventListener('touchend', onEnd);
@@ -567,7 +595,7 @@ export function App() {
   const feedRefreshing = status.refreshing && view === 'feed';
   const sourceCount = library ? library.sources.length : null;
   const sourcesSummary = useMemo(() => library ? summarize(library.sources, library.accounts, status.failed) : null, [library, status.failed]);
-  const emptyKind: EmptyKind | null = !empty ? null : prefs.q ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : prefs.hideSeen ? 'caughtUp' : 'noUpdates';
+  const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : prefs.hideSeen ? 'caughtUp' : 'noUpdates';
   // First run: the panel leads the feed until sources, X and AI are set up, or until it is hidden.
   const setupNeeded = sourceCount === 0 || (config ? !config.ai.provider || !config.x.configured : false);
   const showSetup = view === 'feed' && !hotOpen && !booting && setupNeeded && !setupDismissed && emptyKind !== 'noSources';
@@ -601,7 +629,8 @@ export function App() {
       <main className="reader" ref={readerRef}>
         {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
         <div id="feedView" hidden={hotOpen}>
-        <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view }, true)}>{t('feed.filters.clear')}</button></div>
+        {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen} openAI={() => openSetup('ai')} /></Suspense>}
+        <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>
         <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>
         <p id="syncNote" className="notice" hidden={!syncFailed}>{t('feed.offline')}</p>
         <p id="message" className="notice error" role="alert" hidden={!message}>{message}</p>
@@ -611,7 +640,7 @@ export function App() {
           {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} />)}
         </section>
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
-        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
+        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
@@ -619,6 +648,7 @@ export function App() {
         </footer>
         </div>
       </main>
+      <button id="scrollTop" className="icon-button scroll-top" hidden={!showScrollTop || optionsOpen} aria-label={t('feed.scrollTop')} title={t('feed.scrollTop')} onClick={() => window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'instant' : 'smooth' })}><Icon name="up" /></button>
     </div>
     {readerUsed && <Suspense fallback={null}><Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} /></Suspense>}
     {sourcesOpen && <Suspense fallback={null}><SourcesPage focus={sourcesFocus} back={backToFeed} config={config} failed={status.failed} refresh={() => void refresh()} refreshing={status.refreshing} notify={text => notify(text)}

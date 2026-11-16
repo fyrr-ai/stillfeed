@@ -3,7 +3,7 @@ import { t } from './i18n';
 
 export type { Article };
 export type Feed = { items: Article[]; total: number; unseen: number; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
-export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean };
+export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
 export type Position = { id: string; offset: number };
 export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; collapsed?: string[] };
 /** After this long away, the feed is rebuilt so everything seen meanwhile disappears. */
@@ -53,7 +53,8 @@ export function headline(value: string) { const text = document.createElement('t
 export function loadPreferences(): Preferences {
   try {
     const saved = JSON.parse(localStorage.getItem('stillfeed-preferences') || 'null');
-    if (saved) return { view: saved.view === 'saved' ? 'saved' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true };
+    if (saved) return { view: saved.view === 'saved' ? 'saved' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
+      ...(typeof saved.savedTopic === 'string' && /^([a-f0-9]{32}|ungrouped)$/.test(saved.savedTopic) ? { savedTopic: saved.savedTopic } : {}) };
   } catch {}
   return { ...defaults };
 }

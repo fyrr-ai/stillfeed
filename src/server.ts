@@ -6,6 +6,7 @@ import {Preparation} from './preparation';
 import {collect,seed,refreshHot,refreshSuggestions} from './collect';
 import {Suggestions} from './suggest';
 import {Hot} from './hot';
+import {SavedTopics} from './saved-topics';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { app, config } from './config';
@@ -29,6 +30,8 @@ const summaries=new Summaries(store);
 const preparation=new Preparation(store);
 const hot=new Hot(store);
 const suggestions=new Suggestions(store);
+const savedTopics=new SavedTopics(store);
+savedTopics.enqueue();
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const integer=(value:string|null,fallback:number,min:number,max:number)=>{
   if(value===null)return fallback;
@@ -92,6 +95,7 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(path==='/api/settings')return json(store.settings());
         if(path==='/api/hot')return json({items:hot.list()});
         if(path==='/api/suggestions')return json({items:suggestions.list()});
+        if(path==='/api/saved/topics')return json({...savedTopics.list(),enabled:Boolean(describe())});
         if(path==='/api/sources')return json(sources.list(store));
         if(path==='/api/x-accounts')return json(sources.accounts(store));
         // Status only, never secrets.
@@ -99,7 +103,10 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(path==='/api/feed') {
           const p=url.searchParams,scope=p.get('scope')||'ai',kind=p.get('kind')||'all';
           if(!['ai','all'].includes(scope)||!['all','article','x'].includes(kind))throw new Error('Unknown feed filter');
+          const topic=p.get('topic');
+          if(topic!==null&&(p.get('saved')!=='1'||!/^([a-f0-9]{32}|ungrouped)$/.test(topic)))throw new Error('Invalid saved topic');
           const filters:Filters={scope:scope as Filters['scope'],kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
+          if(topic)filters.savedTopic=topic;
           return json(store.feed(filters,p.get('batch')||undefined,integer(p.get('offset'),0,0,100000)));
         }
         const entry=/^\/api\/article\/([a-f0-9]{32})$/.exec(path);
@@ -119,7 +126,8 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         const summary=/^\/api\/article\/([a-f0-9]{32})\/summary$/.exec(path);
         if(summary)return articleSummary(summary[1]!,value.retry===true);
         const save=/^\/api\/article\/([a-f0-9]{32})\/saved$/.exec(path);
-        if(save){if(typeof value.saved!=='boolean')throw new Error('Invalid saved state');store.save(save[1]!,value.saved);if(value.saved&&store.article(save[1]!)?.kind==='article')preparation.enqueue(save[1]!,500);return json({saved:value.saved});}
+        if(save){if(typeof value.saved!=='boolean')throw new Error('Invalid saved state');store.save(save[1]!,value.saved);if(value.saved){savedTopics.enqueue();if(store.article(save[1]!)?.kind==='article')preparation.enqueue(save[1]!,500);}return json({saved:value.saved});}
+        if(path==='/api/saved/topics/retry'){savedTopics.retry();return json({ok:true});}
         const opened=/^\/api\/article\/([a-f0-9]{32})\/opened$/.exec(path);
         if(opened){if(!store.article(opened[1]!))return json({error:'Unknown article'},404);hot.opened(opened[1]!);return json({ok:true});}
         const hotState=/^\/api\/article\/([a-f0-9]{32})\/hot$/.exec(path);

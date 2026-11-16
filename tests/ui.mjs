@@ -106,7 +106,21 @@ try{
   const postId=await post.getAttribute('data-id');
   check(`${width}: X bookmark is visible in the card header`,await post.locator('.card-head .bookmark').isVisible());
   if(await isSaved(postId)){await toggleSave(post,'Remove from Saved');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='false',postId);}
-  if(width===390){await post.scrollIntoViewIfNeeded();const box=await post.boundingBox();await swipe(box.x+box.width-75,Math.max(130,box.y+85),-140,0);await sleep(300);check('left swipe on a card does not save or open it',!(await isSaved(postId))&&new URL(p.url()).pathname==='/');}
+  if(width===390){
+    await post.scrollIntoViewIfNeeded();const box=await post.boundingBox();
+    await swipe(box.x+box.width-75,Math.max(130,box.y+85),-140,0);await sleep(300);
+    check("left swipe on a card selects Saved without saving or opening it",await p.locator("#viewSaved").getAttribute("aria-pressed")==="true"&&!(await request("/api/feed?saved=1")).items.some(item=>item.id===postId)&&new URL(p.url()).pathname==="/");
+    await swipe(260,400,-140,0);await sleep(100);check("Saved does not wrap around to Hot",await p.locator("#viewSaved").getAttribute("aria-pressed")==="true");
+    await swipe(100,400,140,0);await p.waitForFunction(()=>document.querySelector("#viewFeed").getAttribute("aria-pressed")==="true");await p.locator("#feed .feed-card").first().waitFor();await sleep(300);
+    await p.evaluate(()=>scrollTo(0,0));await sleep(100);
+    await swipe(100,400,45,0);check("short horizontal swipe keeps Feed",await p.locator("#viewFeed").getAttribute("aria-pressed")==="true");
+    await swipe(100,400,140,0,true);check("cancelled swipe keeps Feed",await p.locator("#viewFeed").getAttribute("aria-pressed")==="true");
+    await swipe(5,400,140,0);check("screen-edge swipe keeps Feed",await p.locator("#viewFeed").getAttribute("aria-pressed")==="true");
+    await swipe(100,400,140,0);await p.waitForFunction(()=>document.querySelector("#viewHot").getAttribute("aria-pressed")==="true");
+    await swipe(100,400,140,0);check("Hot does not wrap around to Saved",await p.locator("#viewHot").getAttribute("aria-pressed")==="true");
+    await swipe(260,400,-140,0);await p.waitForFunction(()=>document.querySelector("#viewFeed").getAttribute("aria-pressed")==="true");check("swipe left returns from Hot to Feed",await p.locator("#articlePage").isHidden());
+    await post.scrollIntoViewIfNeeded();
+  }
   await toggleSave(post,'Save for later');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='true',postId);check(`${width}: saving offers Undo`,await p.getByRole('button',{name:'Undo',exact:true}).waitFor({timeout:5000}).then(()=>true,()=>false));
   check(`${width}: saved X posts enter the same library as articles`,(await request('/api/feed?saved=1')).items.some(item=>item.id===postId&&item.kind==='x'));
   await post.getByRole('link',{name:'Open thread',exact:true}).click();await p.locator('#detailLabel').filter({hasText:'Thread'}).waitFor();check(`${width}: X opens a local thread from existing data`,new URL(p.url()).pathname.startsWith('/post/')&&await p.locator('#readingContent .feed-card.tweet').count()===1);check(`${width}: thread detail does not fetch paid replies`,remoteCalls===0);check(`${width}: conversation remains available on X`,await p.locator('.thread-conversation').getAttribute('href')===postURL);
@@ -132,7 +146,7 @@ try{
   const readerY=await p.evaluate(()=>scrollY);if(width===390)await article.locator('.article-link').tap();else await article.locator('.article-link').click();await p.getByText('Full article body from the reading endpoint.').waitFor();
   check(`${width}: article reader opens full content`,await p.locator('#articlePage').isVisible()&&new URL(p.url()).pathname.startsWith('/article/'));
   await p.getByText('Nový nástroj pomáhá s prací.').waitFor();check(`${width}: Czech summary is separate from the original text`,await p.locator('.ai-summary li').count()===3&&await p.locator('.full-article').isVisible());
-  const popup=p.waitForEvent('popup');await p.locator('#articleOriginal').click();const target=await popup;check(`${width}: reader offers the original page`,target.url()===original);await target.close();await p.bringToFront();
+  const popup=p.waitForEvent('popup');await p.locator('#articleOriginal').click();const target=await popup;await target.waitForURL(original);check(`${width}: reader offers the original page`,target.url()===original);await target.close();await p.bringToFront();
   check(`${width}: opening an article removes its unseen dot`,await article.locator('.unseen-dot').isHidden());
   check(`${width}: article is a page, not an overlay`,await p.locator('[data-slot="dialog-content"]').count()===0&&await p.locator('#readerOptions').isHidden());
   const seenDuringReading=sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1200);check(`${width}: reader pauses background seen tracking`,sql('SELECT COUNT(*) FROM seen')[0][0]===seenDuringReading);
@@ -172,6 +186,35 @@ try{
   await toggleSave(article,'Save for later');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='true',savedId);
   await reveal();const feedY=await p.evaluate(()=>scrollY);await p.getByRole('button',{name:'Saved',exact:true}).click();await p.waitForSelector(`[data-id="${savedId}"]`);check(`${width}: Saved has its own view`,await p.locator('#viewSaved').getAttribute('aria-pressed')==='true');
   await p.reload();await p.waitForSelector(`[data-id="${savedId}"]`);check(`${width}: Saved survives reload`,await p.locator(`[data-id="${savedId}"] .bookmark`).getAttribute('aria-pressed')==='true');
+  {
+    const extra=sql("SELECT id FROM articles WHERE kind='article' AND id<>? ORDER BY sort_at DESC LIMIT 2",[savedId]).map(row=>row[0]);
+    for(const id of extra)await request(`/api/article/${id}/saved`,{saved:true});
+    const agents=idOf('saved-topic-agents'),data=idOf('saved-topic-data');
+    sql('DELETE FROM saved_topic_items');
+    sql('INSERT OR IGNORE INTO saved_topics(id,name,topic_key) VALUES(?,?,?),(?,?,?)',[agents,'Agent evaluation','agent evaluation',data,'Data engineering','data engineering']);
+    sql('INSERT INTO saved_topic_items VALUES(?,?),(?,?)',[savedId,agents,extra[0],data]);
+    const grouped=await request('/api/saved/topics');
+    check(`${width}: saved topics count the whole library`,grouped.topics.some(topic=>topic.id===agents&&topic.count===1)&&grouped.ungrouped>0);
+    check(`${width}: topic filters reject invalid input`,(await fetch(base+'/api/feed?saved=1&topic=invalid')).status===400);
+    await p.reload();await p.locator('#savedTopicSelect').waitFor();
+    check(`${width}: saved topic picker occupies one compact row`,(await p.locator('#savedTopics').boundingBox()).height<=56&&await p.locator('.saved-topic-grid').count()===0);
+    const chooseTopic=async name=>{await p.locator('#savedTopicSelect').click();await p.getByRole('option',{name,exact:true}).click();};
+    await chooseTopic('Agent evaluation');await p.waitForFunction(id=>document.querySelectorAll('#feed .feed-card').length===1&&document.querySelector('#feed .feed-card')?.getAttribute('data-id')===id,savedId);
+    check(`${width}: selecting a topic shows its saved items`,(await p.locator('#savedTopicSelect').innerText()).includes('Agent evaluation'));
+    await p.reload();await p.locator('#savedTopicSelect').filter({hasText:'Agent evaluation'}).waitFor();await p.locator(`#feed [data-id="${savedId}"]`).waitFor();
+    check(`${width}: selected topic survives reload`,await p.locator('#feed .feed-card').count()===1);
+    await p.locator(`#feed [data-id="${savedId}"] .article-link`).click();await p.locator('#articlePage').waitFor({state:'visible'});await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
+    check(`${width}: reading preserves the bookmark and its topic`,await p.locator(`#feed [data-id="${savedId}"] .bookmark`).getAttribute('aria-pressed')==='true'&&(await p.locator('#savedTopicSelect').innerText()).includes('Agent evaluation')&&(await request('/api/feed?saved=1')).items.some(item=>item.id===savedId));
+    await p.evaluate(()=>scrollTo(0,0));await chooseTopic('Not grouped yet');await p.waitForFunction(id=>Boolean(document.querySelector(`#feed [data-id="${id}"]`)),extra[1]);
+    check(`${width}: ungrouped saves stay accessible`,await p.locator(`#feed [data-id="${savedId}"]`).count()===0);
+    await chooseTopic('All saved');await p.locator(`#feed [data-id="${savedId}"]`).waitFor();
+    check(`${width}: clearing filters returns to all saved`,(await p.locator('#savedTopicSelect').innerText()).includes('All saved'));
+    await p.evaluate(()=>{const prefs=JSON.parse(localStorage.getItem('stillfeed-preferences'));prefs.savedTopic='f'.repeat(32);localStorage.setItem('stillfeed-preferences',JSON.stringify(prefs));});
+    await p.reload();await p.locator(`#feed [data-id="${savedId}"]`).waitFor();
+    check(`${width}: obsolete topic selections return to all saved`,(await p.locator('#savedTopicSelect').innerText()).includes('All saved'));
+    if(width===390){await p.evaluate(()=>document.documentElement.style.fontSize='200%');await p.setViewportSize({width:320,height:844});await p.locator('#savedTopicSelect').click();check('topic menu fits narrow screens at 200% text size',await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.keyboard.press('Escape');await p.evaluate(()=>document.documentElement.style.fontSize='');await p.setViewportSize({width,height:844});}
+    await p.screenshot({path:path.join(tmpdir(),`stillfeed-saved-compact-${width}.png`)});
+  }
   if(width===390){let collectionRefreshes=0;p.on('request',request=>{if(request.url().endsWith('/api/refresh')&&request.method()==='POST')collectionRefreshes++;});const reloaded=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('saved=1'));await open();await p.getByRole('button',{name:'Refresh saved',exact:true}).click();await reloaded;await close();check('refreshing Saved does not run paid collection again',collectionRefreshes===0);}
 
   await reveal();await p.getByRole('button',{name:'Feed',exact:true}).click();await p.waitForSelector('.feed-card');await sleep(200);check(`${width}: returning from Saved restores the feed position`,Math.abs((await p.evaluate(()=>scrollY))-feedY)<8,`${await p.evaluate(()=>scrollY)} vs ${feedY}`);

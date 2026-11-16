@@ -10,7 +10,7 @@ export function refreshHours(every:number,nightPause:boolean){
   const hours:number[]=[];for(let h=nightPause?5:0;h<(nightPause?23:24);h+=every)hours.push(h);return hours;
 }
 export type RecordData = Record<string, unknown>;
-export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; seenBefore?: number; revision?: number };
+export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number };
 export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null };
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,32);
 export function canonical(value: unknown): string {
@@ -140,6 +140,10 @@ export class Store {
       const conditions=['a.sort_at>=?','a.sort_at<=?','a.created_revision<=?','EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)'];
       const values:(string|number)[]=[cutoff,generated,revision];
       if(filters.savedOnly){conditions.splice(0,conditions.length,'a.created_revision<=?','EXISTS(SELECT 1 FROM saved s WHERE s.article_id=a.id)');values.splice(0,values.length,revision);}
+      if(filters.savedOnly && filters.savedTopic){
+        if(filters.savedTopic==='ungrouped')conditions.push('NOT EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id)');
+        else {conditions.push('EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id AND t.topic_id=?)');values.push(filters.savedTopic);}
+      }
       if(filters.scope==='ai'&&!filters.savedOnly)conditions.push('a.ai=1');
       if(filters.kind!=='all'){conditions.push('a.kind=?');values.push(filters.kind);}
       if(filters.hideSeen){conditions.push('(v.at IS NULL OR v.at>?)');values.push(before);}
