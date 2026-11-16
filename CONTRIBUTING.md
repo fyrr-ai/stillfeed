@@ -29,5 +29,5 @@ bun run check && bun test src && bun run build
 
 ## Translations
 
-The interface is English. To add a language, copy the English table in `ui/i18n.ts`, translate the
-values and register it. The summary language is separate (`RADAR_LANGUAGE`).
+The interface is English. All strings live in the `en` dictionary in `ui/i18n.ts`; a translation is a
+second dictionary with the same keys, selected where `locale` is defined there. The summary language is separate (`RADAR_LANGUAGE`).
