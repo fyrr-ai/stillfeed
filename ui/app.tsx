@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { animate, motion, useMotionValue } from 'motion/react';
-import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogDescription, AlertDialogTitle, AlertDialogTrigger } from '@ui-sdk/react/alert-dialog';
 import { Drawer, DrawerBackdrop, DrawerContent, DrawerTrigger } from '@ui-sdk/react/drawer';
 import { Toast, ToastAction, ToastRegion, ToastTitle, createToaster } from '@ui-sdk/react/toast';
 import { Card, type CardActions } from './card';
 import { Detail, type DetailRoute } from './detail';
-import { Sidebar } from './sidebar';
+import { EmptyState, SetupPanel, type EmptyKind } from './empty';
+import { Icon } from './icons';
+import { t } from './i18n';
+import { Sidebar, type SettingsSection, type SidebarStatus } from './sidebar';
 import {
-  api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, PAGE_SIZE, reducedMotion, resist,
-  type Article, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status,
+  api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
+  type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status,
 } from './lib';
 
-const formatLabels = { all: 'All formats', article: 'Articles', x: 'From X' } as const;
 const detailPath = /^\/(article|post)\/([a-f0-9]{32})$/;
-type Hint = { label: string; opacity: number; mode: 'back' | 'pull' | 'save' } | null;
+type Hint = { label: string; opacity: number; mode: 'back' | 'pull' } | null;
+const SETUP_DISMISSED = 'radar-v2-setup-dismissed';
 
 /** The gesture pill re-renders on every touch move, so it owns its state instead of the whole app. */
 let showHint: (hint: Hint) => void = () => {};
@@ -24,12 +26,11 @@ function GestureHint() {
   return <div id="gestureHint" className="gesture-hint" role="status" aria-live="polite" hidden={!hint} data-gesture={hint?.mode} style={{ opacity: hint?.opacity }}>{hint?.label}</div>;
 }
 let shownHint: string | null = null;
-function hint(label: string | null, distance = 0) {
+function hint(label: string | null, distance = 0, mode: 'back' | 'pull' = 'pull') {
   // Only re-render the pill when its text changes, not on every pointer move.
   if (label === shownHint) return;
   shownHint = label;
   if (!label) return showHint(null);
-  const mode = label.includes('Back') ? 'back' : label.includes('refresh') ? 'pull' : 'save';
   showHint({ label, mode, opacity: Math.min(1, .4 + distance / 150) });
 }
 
@@ -38,10 +39,10 @@ const toaster = createToaster();
 
 /** Hot: a few must-not-miss picks with the reason; they leave only when opened or dismissed. */
 function HotList({ items, loading, actions, dismiss }: { items: HotItem[]; loading: boolean; actions: CardActions; dismiss: (item: HotItem) => void }) {
-  if (!items.length) return loading ? <p className="field-help hot-note">Loading…</p> : <section className="empty" id="hotEmpty"><span aria-hidden="true">◔</span><h2>Nothing hot right now</h2>
-    <p>After each refresh Radar picks the few things you should not miss. Tune it in ~/.config/rmt/radar-interests.md.</p></section>;
-  return <section id="hot" aria-label="Hot">{items.map(item => <div key={item.id} className="hot-item">
-    <Card article={item} seen={item.seen} busy={false} actions={actions} note={{ label: 'Proč nepropásnout', text: item.reason, onDismiss: () => dismiss(item) }} />
+  if (!items.length) return loading ? <p className="field-help hot-note">{t('hot.loading')}</p> : <section className="empty" id="hotEmpty"><span className="empty-glyph" aria-hidden="true"><Icon name="flame" size={26} /></span><h2>{t('hot.empty.title')}</h2>
+    <p>{t('hot.empty.text')}</p></section>;
+  return <section id="hot" aria-label={t('hot.label')}>{items.map(item => <div key={item.id} className="hot-item">
+    <Card article={item} seen={item.seen} busy={false} actions={actions} note={{ label: t('hot.why'), text: item.reason, onDismiss: () => dismiss(item) }} />
   </div>)}</section>;
 }
 
@@ -54,7 +55,11 @@ export function App() {
   const [failedNewView, setFailedState] = useState(false);
   const [message, setMessage] = useState('');
   const [syncFailed, setSyncFailed] = useState(false);
-  const [status, setStatus] = useState({ updated: 'Loading…', note: '', refreshing: false, newUpdates: false });
+  const [status, setStatus] = useState<SidebarStatus & { refreshing: boolean; newUpdates: boolean }>({ updated: t('settings.updated.loading'), rss: 0, failed: [], preparation: null, importError: false, stored: null, revision: null, refreshing: false, newUpdates: false });
+  // Server configuration and the source count drive first-run and the empty states; both are optional endpoints.
+  const [config, setConfig] = useState<Config | null | undefined>(undefined);
+  const [sourceCount, setSourceCount] = useState<number | null>(null);
+  const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem(SETUP_DISMISSED) === '1');
   const [route, setRouteState] = useState<DetailRoute | null>(() => { const m = detailPath.exec(location.pathname); return m ? { kind: m[1] as 'article' | 'post', id: m[2]!, article: null } : null; });
   const [optionsOpen, setOptionsOpenState] = useState(false);
   const [settings, setSettingsState] = useState<Settings>({ windowHours: 72, refreshEvery: 2, nightPause: true, retentionDays: 30 });
@@ -73,7 +78,7 @@ export function App() {
     prefs, items, feed, loading, failedNewView, route, optionsOpen, settings, pendingUpdates: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
     returnTo: (route ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
-    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
+    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusSection: null as SettingsSection | null, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
     /** Articles opened in the current snapshot: they stay out of it, also after a restore. */
     collapsed: new Set<string>(),
   }).current;
@@ -167,7 +172,7 @@ export function App() {
       watch(); save();
     } catch (error) {
       if (request !== r.request) return;
-      flushSync(() => { setFailed(!append); if (!append) setItems([]); setLoading(false); setBooting(false); setMessage(error instanceof Error ? error.message : 'Could not load updates'); });
+      flushSync(() => { setFailed(!append); if (!append) setItems([]); setLoading(false); setBooting(false); setMessage(error instanceof Error ? error.message : t('error.load')); });
       throw error;
     }
   }
@@ -244,8 +249,8 @@ export function App() {
     try {
       await api(`/api/article/${item.id}/hot`, { dismissed: true });
       toaster.dismiss();
-      toaster('Odebráno z Hot', { action: { label: 'Zpět', onAction: async () => { await api(`/api/article/${item.id}/hot`, { dismissed: false }); await loadHot(); } } });
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update Hot'); void loadHot(); }
+      toaster(t('hot.removed'), { action: { label: t('hot.undo'), onAction: async () => { await api(`/api/article/${item.id}/hot`, { dismissed: false }); await loadHot(); } } });
+    } catch (error) { setMessage(error instanceof Error ? error.message : t('hot.error')); void loadHot(); }
   }
 
   /** Sidebar settings save as they change; a new feed window rebuilds the view. */
@@ -266,17 +271,22 @@ export function App() {
   async function refreshStatus() {
     try {
       const data = await api<Status>('/api/status');
-      const failed = Array.isArray(data.collection.failed) ? data.collection.failed.length : Number(data.collection.failed) || 0;
-      let note = `${data.collection.rss || 0} RSS feeds · ${r.settings.windowHours / 24} days of updates${data.importError ? ' · Last import failed' : ''}${failed ? ` · ${failed} sources failed` : ''}`;
-      if (data.preparation) note += ` · ${data.preparation.done || 0} articles prepared${data.preparation.queued || data.preparation.working ? ' · Preparing more…' : ''}`;
       const refreshing = data.refresh === 'running';
       let newUpdates = r.prefs.view !== 'saved' && r.feed !== null && r.feed.revision !== data.revision;
       if (r.refreshRequested && !refreshing) { r.refreshRequested = false; newUpdates ||= r.prefs.view === 'feed' && r.feed?.revision !== data.revision; }
       r.pendingUpdates = newUpdates;
-      setStatus({ updated: `Updated ${new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }).format(new Date(data.generatedAt))}`, note, refreshing, newUpdates });
+      const generated = data.generatedAt ? new Date(data.generatedAt) : null;
+      setStatus({
+        updated: generated && !Number.isNaN(generated.getTime()) ? t('settings.updated', { time: new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }).format(generated) }) : t('settings.updated.loading'),
+        rss: Number(data.collection.rss) || 0,
+        failed: Array.isArray(data.failedSources) ? data.failedSources.filter(f => f && typeof f.id === 'string') : [],
+        preparation: data.preparation ?? null, importError: Boolean(data.importError),
+        stored: typeof data.articles?.total === 'number' ? data.articles.total : null, revision: Number.isFinite(data.revision) ? data.revision : null,
+        refreshing, newUpdates,
+      });
       if (newUpdates && atTop() && !r.loading) applyUpdates();
-      if (data.refresh === 'failed') setMessage('The last refresh failed. Your existing updates are safe. Try again.');
-    } catch { setMessage('Could not check for updates. Your current feed is still available.'); }
+      if (data.refresh === 'failed') setMessage(t('error.refresh'));
+    } catch { setMessage(t('error.status')); }
   }
   async function refresh() {
     try {
@@ -293,10 +303,10 @@ export function App() {
       patchArticle(article.id, { saved: on });
       // One toast at a time: a newer action replaces the previous Undo.
       toaster.dismiss();
-      if (undoable) toaster(on ? 'Saved' : 'Removed from Saved', { action: { label: 'Undo', onAction: () => void latest.current.saveArticle(article, !on, false) } });
+      if (undoable) toaster(on ? t('toast.saved') : t('toast.unsaved'), { action: { label: t('toast.undo'), onAction: () => void latest.current.saveArticle(article, !on, false) } });
       if (!on && r.prefs.view === 'saved') { const y = scrollY; setFeed(null); await getPage(false); if (!r.route) window.scrollTo(0, y); }
     } catch (error) {
-      const text = error instanceof Error ? error.message : 'Could not save this article';
+      const text = error instanceof Error ? error.message : t('reader.saveFailed');
       if (r.route) setNotice(text); else setMessage(text);
     } finally { setBusy(set => { const next = new Set(set); next.delete(article.id); return next; }); }
   }
@@ -312,13 +322,13 @@ export function App() {
       setItems(r.items.map(a => a.seen ? a : { ...a, seen: true })); setUnseen(0);
       if (r.prefs.hideSeen) { setFeed(null); await getPage(false).catch(() => {}); }
       toaster.dismiss();
-      toaster(ids.length ? `Marked ${ids.length.toLocaleString()} as seen` : 'Everything here is already seen', ids.length ? { action: { label: 'Undo', onAction: async () => {
+      toaster(ids.length ? t('toast.markedSeen', { n: ids.length }) : t('toast.alreadySeen'), ids.length ? { action: { label: t('toast.undo'), onAction: async () => {
         for (let i = 0; i < ids.length; i += 2000) await api('/api/seen', { ids: ids.slice(i, i + 2000), seen: false });
         setItems(r.items.map(a => changed.has(a.id) ? { ...a, seen: false } : a)); setUnseen(n => n + ids.length);
         if (r.prefs.hideSeen) { setFeed(null); await getPage(false).catch(() => {}); }
         watch();
       } } } : undefined);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not mark updates as seen'); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : t('error.markSeen')); }
   }
 
   // Detail routing: the feed stays mounted underneath, so returning keeps every card and the scroll position.
@@ -331,7 +341,7 @@ export function App() {
     }
     unwatch(); setNotice('');
     flushSync(() => setRoute({ kind, id: article.id, article }));
-    document.title = kind === 'post' ? 'Thread — Radar' : `${article.title} — Radar`;
+    document.title = kind === 'post' ? t('app.title.thread') : t('app.title.article', { title: article.title });
     window.scrollTo(0, 0); mark(article.id, true);
     setHot(list => list.filter(h => h.id !== article.id));
     void api(`/api/article/${article.id}/opened`, {}).catch(() => {});
@@ -357,7 +367,7 @@ export function App() {
     // The article just read leaves the feed right away; the rest of the list keeps its place.
     const opened = r.route?.id;
     flushSync(() => { setRoute(null); if (opened && r.prefs.hideSeen && r.prefs.view === 'feed') { r.collapsed.add(opened); setItems(r.items.filter(a => a.id !== opened)); } });
-    document.title = 'Radar';
+    document.title = t('app.name');
     window.scrollTo(0, history.state?.feedY ?? r.returnTo?.y ?? 0);
     r.returnTo?.anchor?.focus({ preventScroll: true }); watch(); save();
   }
@@ -423,11 +433,13 @@ export function App() {
     void (async () => {
       try {
         setSettings(await api<Settings>('/api/settings'));
+        void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
+        void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); });
         // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
         await loadView(loadSession('radar-v2-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
         void loadHot();
         await refreshStatus(); void flush(); save(); await followRoute();
-      } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open Radar'); setBooting(false); }
+      } catch (error) { setMessage(error instanceof Error ? error.message : t('error.open')); setBooting(false); }
     })();
     return () => {
       document.removeEventListener('visibilitychange', onVisibility); removeEventListener('popstate', onPop); removeEventListener('online', onOnline);
@@ -463,7 +475,7 @@ export function App() {
       if (!pulling && dy < 12) { if (dy > 0 && event.cancelable) event.preventDefault(); return; }
       pulling = true; distance = dy;
       if (event.cancelable) event.preventDefault();
-      hint(dy >= COMMIT ? '↻ Release to refresh' : '↓ Pull to refresh', dy);
+      hint(dy >= COMMIT ? t('gesture.release') : t('gesture.pull'), dy, 'pull');
       if (!reducedMotion.matches) pullY.set(resist(dy) * .6);
     };
     const onEnd = () => { const go = pulling && distance >= COMMIT; if (start || pulling) reset(); if (go) { void latest.current.reloadFresh(); void latest.current.refresh(); } };
@@ -486,43 +498,50 @@ export function App() {
     setTimeout(() => observer.disconnect(), 1500);
   }
   function openSearch() { r.focusSearch = true; setOptionsOpen(true); }
+  function openSettings(section: SettingsSection) { r.focusSection = section; setOptionsOpen(true); }
+  function dismissSetup() { localStorage.setItem(SETUP_DISMISSED, '1'); setSetupDismissed(true); }
 
   const view = prefs.view;
   const total = feed?.total ?? 0;
-  const progress = feed ? `${items.length.toLocaleString()} of ${total.toLocaleString()}` : '';
-  const filterText = [view !== 'saved' && prefs.scope === 'all' ? 'Everything' : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', view === 'feed' && !prefs.hideSeen ? 'Showing seen' : '', prefs.q ? `Search: ${prefs.q}` : ''].filter(Boolean).join(' · ');
+  const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
+  const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
+  const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', view === 'feed' && !prefs.hideSeen ? t('feed.filters.showingSeen') : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
+  const emptyKind: EmptyKind | null = !empty ? null : prefs.q ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : prefs.hideSeen ? 'caughtUp' : 'noUpdates';
+  // First run: the panel leads the feed until sources, X and AI are set up, or until it is hidden.
+  const setupNeeded = sourceCount === 0 || (config ? !config.ai.provider || !config.x.configured : false);
+  const showSetup = view === 'feed' && !hotOpen && !booting && setupNeeded && !setupDismissed && emptyKind !== 'noSources';
 
   return <>
-    <a className="skip" href="#feed">Skip to updates</a>
+    <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null}>
       <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
-        <nav className="view-tabs" aria-label="Your library">
-          <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>Hot{hot.length > 0 && <span className="tab-count" aria-label={`${hot.length} items`}>{hot.length}</span>}</button>
-          <button id="viewFeed" aria-pressed={!hotOpen && view === 'feed'} onClick={() => openTab('feed')}>Feed</button>
-          <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>Saved</button>
+        <a className="brand" href="/" aria-label={t('app.name')} onClick={event => { event.preventDefault(); openTab('feed'); window.scrollTo({ top: 0 }); }}><Icon name="radar" size={20} /><span>{t('app.name')}</span></a>
+        <nav className="view-tabs" aria-label={t('tabs.label')}>
+          <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>
+          <button id="viewFeed" aria-pressed={!hotOpen && view === 'feed'} onClick={() => openTab('feed')}>{t('tabs.feed')}</button>
+          <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          {!hotOpen && view === 'feed' && feed && <span id="unseenBubble" className="count-bubble" title="Unseen / all updates in this view" aria-label={`${unseen} unseen of ${total} in this view`}><b>{unseen.toLocaleString()}</b><span aria-hidden="true">/</span>{total.toLocaleString()}</span>}
-          {!hotOpen && view === 'feed' && <AlertDialog onOpenChange={(open, details) => { r.confirmOpen = open; if (open) unwatch(); if (!open && details.returnValue === 'confirm') void markAllSeen(); }} onOpenChangeComplete={open => { if (!open) watch(); }}>
-            <AlertDialogTrigger id="markAllSeen" className="icon-button" aria-label="Mark all as seen" title="Mark all as seen" disabled={!feed?.total}><svg viewBox="0 0 24 24"><path d="m2 13 4 4 8-9M10 16l1 1 9-10" /></svg></AlertDialogTrigger>
-            <AlertDialogContent id="markAllConfirm" className="sheet confirm-sheet">
-              <AlertDialogTitle className="confirm-title">Mark everything here as seen?</AlertDialogTitle>
-              <AlertDialogDescription className="field-help">{`All ${(feed?.total ?? 0).toLocaleString()} updates in this view, including those you have not scrolled to. You can undo it right after.`}</AlertDialogDescription>
-              <div className="confirm-actions"><AlertDialogClose className="secondary-button">Cancel</AlertDialogClose><AlertDialogClose className="primary-button" value="confirm">Mark as seen</AlertDialogClose></div>
-            </AlertDialogContent>
-          </AlertDialog>}
           <Drawer side="right" open={optionsOpen} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
-            if (!open && sourcesChanged) { sourcesChanged = false; setFeed(null); void getPage(false).catch(() => {}); }
+            if (open && r.focusSection) {
+              const section = r.focusSection; r.focusSection = null;
+              document.getElementById(`settings-${section}`)?.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+              if (section === 'sources') document.getElementById('addSourceUrl')?.focus({ preventScroll: true });
+            }
+            if (!open && sourcesChanged) { sourcesChanged = false; setFeed(null); void getPage(false).catch(() => {}); void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); }); }
             watch(); save();
           }}>
-            <DrawerTrigger className="icon-button" aria-label="Feed options" title="Feed options"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></svg></DrawerTrigger>
+            <DrawerTrigger className="icon-button" aria-label={t('options.open')} title={t('options.open')}><Icon name="menu" /></DrawerTrigger>
             <DrawerBackdrop className="side-backdrop" />
             <DrawerContent id="optionsSheet" className="sidebar">
               <Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
-                status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sourcesChanged={() => { sourcesChanged = true; }} notify={text => toaster(text)} />
+                status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sourcesChanged={() => { sourcesChanged = true; }} notify={text => toaster(text)}
+                config={config} counts={!hotOpen && view === 'feed' && feed ? { unseen, total } : null}
+                markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()}
+                sourcesLoaded={list => setSourceCount(list.length)} />
             </DrawerContent>
           </Drawer>
         </div>
@@ -530,27 +549,26 @@ export function App() {
       <main className="reader" ref={readerRef}>
         {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
         <div id="feedView" hidden={hotOpen}>
-        <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view }, true)}>Clear</button></div>
-        <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><span aria-hidden="true">↑</span> New posts</button>
-        <p id="syncNote" className="notice" hidden={!syncFailed}>You’re offline. Seen updates will sync when you reconnect.</p>
+        <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view }, true)}>{t('feed.filters.clear')}</button></div>
+        <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>
+        <p id="syncNote" className="notice" hidden={!syncFailed}>{t('feed.offline')}</p>
         <p id="message" className="notice error" role="alert" hidden={!message}>{message}</p>
-        <div id="loading" className="skeleton" aria-label="Loading updates" hidden={!booting}><div></div><div></div><div></div></div>
-        <motion.section id="feed" ref={listRef} aria-label="Updates" style={{ y: pullY }}>
+        {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSettings} dismiss={dismissSetup} />}
+        <div id="loading" className="skeleton" aria-label={t('feed.loading')} hidden={!booting}><div></div><div></div><div></div></div>
+        <motion.section id="feed" ref={listRef} aria-label={t('feed.label')} style={{ y: pullY }}>
           {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} />)}
         </motion.section>
-        {empty && <section id="empty" className="empty"><span aria-hidden="true">◔</span>
-          <h2 id="emptyTitle">{prefs.q ? 'No matching updates' : view === 'saved' ? 'Nothing saved yet' : prefs.hideSeen ? 'You’re caught up' : 'No updates yet'}</h2>
-          <p id="emptyText">{prefs.q ? 'Try another search, or clear your filters.' : view === 'saved' ? 'Save an article to find it here later.' : prefs.hideSeen ? 'You’ve seen everything in this view. Turn off Hide seen to browse it again.' : 'Try refreshing or enabling more sources.'}</p>
-          <button id="emptyReset" className="secondary-button" onClick={() => void change({ ...defaults, view }, true)}>Reset view</button></section>}
+        {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSettings} />}
+        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSettings} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
           <p id="progress">{progress}</p>
-          <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? 'Retry' : loading ? 'Loading…' : 'Load more'}</button>
-          <p id="endNote" hidden={!feed || feed.next !== null}>{total ? 'That’s everything in this view.' : 'No updates in this view.'}</p>
+          <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
+          <p id="endNote" hidden={!feed || feed.next !== null}>{total ? t('feed.end') : t('feed.none')}</p>
         </footer>
         </div>
       </main>
     </div>
-    <Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} />
+    <Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} />
     <GestureHint />
     <ToastRegion toaster={toaster} className="toast-region">{() => <Toast className="toast"><ToastTitle className="toast-title" /><ToastAction className="toast-action" /></Toast>}</ToastRegion>
   </>;

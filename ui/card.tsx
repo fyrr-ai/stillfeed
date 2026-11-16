@@ -1,21 +1,26 @@
-import { memo, useState, type MouseEvent } from 'react';
+import { memo, useState, type MouseEvent, type SyntheticEvent } from 'react';
+import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogTitle, DialogTrigger } from '@ui-sdk/react/dialog';
+import { Icon, type IconName } from './icons';
+import { t } from './i18n';
 import { RichText } from './rich';
-import { articleBadge, count, headline, link, relative, type Article } from './lib';
+import { articleFormat, count, headline, link, relative, type Article } from './lib';
 
 export type CardActions = {
   open: (article: Article, from: HTMLElement | null) => void;
   save: (article: Article, on: boolean) => void;
   opened: (id: string) => void;
-  hint: (label: string | null, distance?: number) => void;
+  hint: (label: string | null, distance?: number, mode?: 'back' | 'pull') => void;
   error: (text: string) => void;
 };
 
-const BookmarkIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>;
+/** Tall attachments stop here; the full image is one tap away. */
+const MEDIA_CAP = 280;
 const activity = [
-  ['replies', 'Replies', <path key="r" d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z" />],
-  ['reposts', 'Reposts', <path key="p" d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3" />],
-  ['likes', 'Likes', <path key="l" d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z" />],
+  ['replies', 'card.replies', 'reply'],
+  ['reposts', 'card.reposts', 'repost'],
+  ['likes', 'card.likes', 'like'],
 ] as const;
+const stop = (event: SyntheticEvent) => event.stopPropagation();
 
 function Avatar({ name, src, className = '' }: { name: string; src: string; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -28,30 +33,54 @@ function Avatar({ name, src, className = '' }: { name: string; src: string; clas
 
 function Photos({ items }: { items: unknown }) {
   if (!Array.isArray(items) || !items.length) return null;
-  return <div className={`photos photos-${Math.min(items.length, 4)}`}>{items.slice(0, 4).map((m, i) => <Photo key={i} media={m} />)}</div>;
-}
-function Photo({ media }: { media: Record<string, unknown> }) {
-  const [failed, setFailed] = useState(false);
-  return <span className="photo">
-    {!failed && <img src={link(media.src)} alt="" loading="lazy" referrerPolicy="no-referrer" style={media.w && media.h ? { aspectRatio: `${Number(media.w)}/${Number(media.h)}` } : undefined} onError={() => setFailed(true)} />}
-    {media.type !== 'photo' && <span className="play" aria-label="Video on original post">▶</span>}
-  </span>;
+  const shown = items.slice(0, 4);
+  return <div className={`photos photos-${shown.length}`}>{shown.map((m, i) => <Photo key={i} media={m} single={shown.length === 1} />)}</div>;
 }
 
-/** Only a real picture earns a preview: a missing, failed or logo-sized image leaves no empty box (as on X). */
+/** A photo opens full size in a dialog; a video frame links to the original post. The lightbox stops
+ *  its clicks so the card underneath does not open the thread. */
+function Photo({ media, single }: { media: Record<string, unknown>; single: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const [cropped, setCropped] = useState(false);
+  const src = link(media.src);
+  const w = Number(media.w), h = Number(media.h);
+  if (!src || failed) return null;
+  const image = <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={w && h ? { aspectRatio: `${w}/${h}` } : undefined}
+    onLoad={event => { const el = event.currentTarget; if (single && el.naturalWidth && el.naturalHeight / el.naturalWidth * el.clientWidth > MEDIA_CAP + 8) setCropped(true); }}
+    onError={() => setFailed(true)} />;
+  if (media.type !== 'photo') return <span className="photo photo-video">{image}<span className="play" aria-label={t('card.videoOnX')}><Icon name="video" size={22} /></span></span>;
+  return <Dialog>
+    <DialogTrigger className={`photo${cropped ? ' photo-cropped' : ''}`} aria-label={t('card.viewImage')}>
+      {image}
+      {cropped && <span className="photo-more" aria-hidden="true"><Icon name="expand" size={13} />{t('card.viewImage')}</span>}
+    </DialogTrigger>
+    <DialogBackdrop className="lightbox-backdrop" onClick={stop} />
+    <DialogContent className="lightbox" onClick={stop}>
+      <DialogTitle className="sr-only">{t('card.imageTitle')}</DialogTitle>
+      <img src={src} alt="" referrerPolicy="no-referrer" />
+      <DialogClose className="icon-button lightbox-close" aria-label={t('card.closeImage')}><Icon name="close" /></DialogClose>
+    </DialogContent>
+  </Dialog>;
+}
+
+/** Only a real picture earns a preview: a missing, failed or logo-sized image leaves no empty box. While it
+ *  loads the frame is a deliberate skeleton with a stable aspect ratio, so the list does not jump. */
 function Preview({ article }: { article: Article }) {
   const [image, setImage] = useState<'loading' | 'ok' | 'none'>('loading');
   if (image === 'none') return null;
   return <div className={`preview${image === 'ok' ? ' has-image' : ' preview-loading'}`}>
+    {image === 'loading' && <Icon name="image" size={22} className="preview-glyph" />}
     <img className="hero-image" src={`/api/image/${article.id}/preview`} alt="" loading="lazy" decoding="async" onLoad={event => setImage(event.currentTarget.naturalWidth < 400 ? 'none' : 'ok')} onError={() => setImage('none')} />
   </div>;
 }
+
+const formatIcons: Record<string, IconName> = { article: 'article', video: 'video', reddit: 'reddit' };
 
 export type CardNote = { label: string; text: string; onDismiss?: () => void };
 export const Card = memo(function Card({ article, seen, busy, inThread = false, actions, note }: { article: Article; seen: boolean; busy: boolean; inThread?: boolean; actions: CardActions; note?: CardNote }) {
   const tweet = article.tweet as Record<string, any> | null;
   const isX = article.kind === 'x';
-  const badge = articleBadge(article.url);
+  const format = articleFormat(article.url);
   const name = isX ? String(tweet?.name || tweet?.author || article.source) : article.source;
   const icon = isX ? link(tweet?.avatar) : `/api/image/${article.id}/icon`;
   const profile = isX && tweet?.author ? `https://x.com/${encodeURIComponent(String(tweet.author))}` : '';
@@ -60,7 +89,7 @@ export const Card = memo(function Card({ article, seen, busy, inThread = false, 
     event.preventDefault(); actions.open(article, event.currentTarget);
   };
   const onCardClick = (event: MouseEvent<HTMLElement>) => {
-    if (inThread || (event.target as Element).closest('a,button') || window.getSelection()?.toString()) return;
+    if (inThread || (event.target as Element).closest('a,button,[role=dialog]') || window.getSelection()?.toString()) return;
     actions.open(article, event.currentTarget);
   };
   const tweetId = String(tweet?.id || article.url.match(/\/status\/(\d+)/)?.[1] || '');
@@ -70,37 +99,38 @@ export const Card = memo(function Card({ article, seen, busy, inThread = false, 
     <div className="card-row">
     <Avatar name={name} src={icon} className={isX ? '' : 'source'} />
     <div className="card-body">
-      {tweet?.kind === 'retweet' && <div className="reposted">↻ {String(tweet.by)} reposted</div>}
+      {tweet?.kind === 'retweet' && <div className="reposted"><Icon name="repost" size={14} /> {t('card.reposted', { by: String(tweet.by) })}</div>}
       <header className="card-head">
         <div className="author-line">
           {profile ? <a className="author" href={profile} target="_blank" rel="noopener noreferrer">{name}</a> : <b className="author">{name}</b>}
-          {isX ? (inThread ? <span className="format-badge format-x" aria-label="Post from X">X</span> : <a className="format-badge format-x" href={`/post/${article.id}`} aria-label="Open thread" onClick={openFrom}>X</a>)
-            : <span className={`format-badge format-article format-${badge.kind}`} aria-label={badge.label} title={badge.label}>{badge.letter}</span>}
+          {isX ? (inThread ? <span className="format-badge format-x" aria-label={t('card.post')} title={t('card.post')}><Icon name="x" size={12} /></span>
+              : <a className="format-badge format-x" href={`/post/${article.id}`} aria-label={t('card.openThread')} title={t('card.openThread')} onClick={openFrom}><Icon name="x" size={12} /></a>)
+            : <span className={`format-badge format-article format-${format.kind}`} role="img" aria-label={format.label} title={format.label}><Icon name={formatIcons[format.kind] ?? 'article'} size={14} /></span>}
           <div className="post-meta">
             <time dateTime={published.toISOString()} title={published.toLocaleString()}>{relative(article.publishedAt)}</time>
-            <span className="unseen-dot" role="img" aria-label="Not seen" hidden={seen} />
+            <span className="unseen-dot" role="img" aria-label={t('card.unseen')} title={t('card.unseen')} hidden={seen} />
           </div>
         </div>
-        <button className="icon-button bookmark" aria-label={article.saved ? 'Remove from Saved' : 'Save for later'} aria-pressed={article.saved} disabled={busy} aria-busy={busy || undefined} onClick={() => actions.save(article, !article.saved)}><BookmarkIcon /></button>
+        <button className="icon-button bookmark" aria-label={article.saved ? t('card.unsave') : t('card.save')} aria-pressed={article.saved} disabled={busy} aria-busy={busy || undefined} onClick={() => actions.save(article, !article.saved)}><Icon name="bookmark" size={17} /></button>
       </header>
-      {note && <aside className="card-note" lang="cs" aria-label={note.label}>
-        <div><span className="card-note-label">{note.label}</span><p lang="cs">{note.text}</p></div>
-        {note.onDismiss && <button className="icon-button card-note-dismiss" aria-label="Nezajímá mě" title="Nezajímá mě" onClick={note.onDismiss}>✕</button>}
+      {note && <aside className="card-note" aria-label={note.label}>
+        <div><span className="card-note-label"><Icon name="flame" size={13} />{note.label}</span><p>{note.text}</p></div>
+        {note.onDismiss && <button className="icon-button card-note-dismiss" aria-label={t('hot.dismiss')} title={t('hot.dismiss')} onClick={note.onDismiss}><Icon name="close" size={15} /></button>}
       </aside>}
       {isX ? <>
         <div className="post-text" onClick={event => { if ((event.target as Element).closest('a')) actions.opened(article.id); }}><RichText text={tweet?.text || article.title} links={tweet?.links} drop={tweet?.drop} /></div>
         <Photos items={tweet?.media} />
         {tweet?.article?.title && <a className="x-article" href={link(tweet.article.url) || article.url} target="_blank" rel="noopener noreferrer" onClick={inThread ? () => actions.opened(article.id) : openFrom}>
           {link(tweet.article.image) && <img src={link(tweet.article.image)} alt="" loading="lazy" referrerPolicy="no-referrer" />}
-          <span className="x-article-body"><small>{inThread ? 'Article on X ↗' : 'Article on X'}</small><b>{String(tweet.article.title)}</b>{tweet.article.preview && <span>{String(tweet.article.preview)}</span>}</span>
+          <span className="x-article-body"><small>{t('card.articleOnX')}{inThread && <Icon name="external" size={11} />}</small><b>{String(tweet.article.title)}</b>{tweet.article.preview && <span>{String(tweet.article.preview)}</span>}</span>
         </a>}
         {tweet?.quote && typeof tweet.quote === 'object' && <div className="quote"><b>{String(tweet.quote.name || tweet.quote.handle || '')}</b><div className="post-text"><RichText text={tweet.quote.text} links={tweet.quote.links} drop={tweet.quote.drop} /></div><Photos items={tweet.quote.media} /></div>}
         <footer className="post-footer">
-          <div className="metrics" aria-label="Post activity">{activity.map(([key, label, iconPath]) => {
-            const replies = key === 'replies';
+          <div className="metrics" aria-label={t('card.activity')}>{activity.map(([key, labelKey, iconName]) => {
+            const replies = key === 'replies', label = t(labelKey);
             const href = replies ? (inThread ? article.url : `/post/${article.id}`) : `https://x.com/intent/${key === 'likes' ? 'like' : 'retweet'}?tweet_id=${encodeURIComponent(tweetId)}`;
-            const labelText = replies ? (inThread ? 'View replies on X' : 'Open thread') : `Open ${label} on X`;
-            return <a key={key} className={`metric metric-${key}`} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${labelText}, ${count(tweet?.[key])}`} title={label} onClick={replies && !inThread ? openFrom : undefined}><svg viewBox="0 0 24 24" aria-hidden="true">{iconPath}</svg><span>{count(tweet?.[key])}</span></a>;
+            const labelText = replies ? (inThread ? t('card.viewReplies') : t('card.openThread')) : t('card.openOnX', { label });
+            return <a key={key} className={`metric metric-${key}`} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${labelText}, ${count(tweet?.[key])}`} title={label} onClick={replies && !inThread ? openFrom : undefined}><Icon name={iconName} size={16} /><span>{count(tweet?.[key])}</span></a>;
           })}</div>
         </footer>
       </> : <a className="article-link" href={article.url} target="_blank" rel="noopener noreferrer" onClick={openFrom}><h2>{headline(article.title)}</h2><Preview article={article} /></a>}
