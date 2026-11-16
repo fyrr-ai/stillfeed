@@ -89,7 +89,8 @@ Every source is added once: if you switch a default off or remove it, it stays t
 bun install --frozen-lockfile
 bun run check      # TypeScript
 bun test src       # unit tests
-bun run build      # rebuild assets/main.js after UI changes (it is committed)
+bun run build      # rebuild assets/build and index.html after UI changes (they are committed)
+bun run test:perf  # speed budgets: first-paint download and API latency
 bun run dev        # server with a separate state directory
 ```
 

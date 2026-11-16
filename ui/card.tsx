@@ -1,5 +1,5 @@
-import { memo, useState, type MouseEvent, type SyntheticEvent } from 'react';
-import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogTitle, DialogTrigger } from '@ui-sdk/react/dialog';
+import { lazy, memo, Suspense, useRef, useState, type MouseEvent } from 'react';
+const Lightbox = lazy(() => import('./lightbox'));
 import { Icon, type IconName } from './icons';
 import { t } from './i18n';
 import { RichText } from './rich';
@@ -20,7 +20,6 @@ const activity = [
   ['reposts', 'card.reposts', 'repost'],
   ['likes', 'card.likes', 'like'],
 ] as const;
-const stop = (event: SyntheticEvent) => event.stopPropagation();
 
 function Avatar({ name, src, className = '' }: { name: string; src: string; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -37,11 +36,13 @@ function Photos({ items }: { items: unknown }) {
   return <div className={`photos photos-${shown.length}`}>{shown.map((m, i) => <Photo key={i} media={m} single={shown.length === 1} />)}</div>;
 }
 
-/** A photo opens full size in a dialog; a video frame links to the original post. The lightbox stops
+/** A photo opens full size in a dialog (loaded on the first tap); a video frame links to the original post. The lightbox stops
  *  its clicks so the card underneath does not open the thread. */
 function Photo({ media, single }: { media: Record<string, unknown>; single: boolean }) {
   const [failed, setFailed] = useState(false);
   const [cropped, setCropped] = useState(false);
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const src = link(media.src);
   const w = Number(media.w), h = Number(media.h);
   if (!src || failed) return null;
@@ -49,18 +50,13 @@ function Photo({ media, single }: { media: Record<string, unknown>; single: bool
     onLoad={event => { const el = event.currentTarget; if (single && el.naturalWidth && el.naturalHeight / el.naturalWidth * el.clientWidth > MEDIA_CAP + 8) setCropped(true); }}
     onError={() => setFailed(true)} />;
   if (media.type !== 'photo') return <span className="photo photo-video">{image}<span className="play" aria-label={t('card.videoOnX')}><Icon name="video" size={22} /></span></span>;
-  return <Dialog>
-    <DialogTrigger className={`photo${cropped ? ' photo-cropped' : ''}`} aria-label={t('card.viewImage')}>
+  return <>
+    <button ref={trigger} type="button" className={`photo${cropped ? ' photo-cropped' : ''}`} aria-label={t('card.viewImage')} aria-haspopup="dialog" onClick={event => { event.stopPropagation(); setOpen(true); }}>
       {image}
       {cropped && <span className="photo-more" aria-hidden="true"><Icon name="expand" size={13} />{t('card.viewImage')}</span>}
-    </DialogTrigger>
-    <DialogBackdrop className="lightbox-backdrop" onClick={stop} />
-    <DialogContent className="lightbox" onClick={stop}>
-      <DialogTitle className="sr-only">{t('card.imageTitle')}</DialogTitle>
-      <img src={src} alt="" referrerPolicy="no-referrer" />
-      <DialogClose className="icon-button lightbox-close" aria-label={t('card.closeImage')}><Icon name="close" /></DialogClose>
-    </DialogContent>
-  </Dialog>;
+    </button>
+    {open && <Suspense fallback={null}><Lightbox src={src} close={() => { setOpen(false); trigger.current?.focus(); }} /></Suspense>}
+  </>;
 }
 
 /** Only a real picture earns a preview: a missing, failed or logo-sized image leaves no empty box. While it

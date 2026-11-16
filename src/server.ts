@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { app, config } from './config';
 import { describe, language } from './llm';
+import { serveStatic } from './static';
 import * as sources from './sources';
 const args=Bun.argv.slice(2);
 const option=(key:string,fallback:string)=>args.includes(key)?args[args.indexOf(key)+1]!:fallback;
@@ -109,10 +110,9 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(summary)return articleSummary(summary[1]!);
         const image=/^\/api\/image\/([a-f0-9]{32})\/(icon|preview)$/.exec(path);
         if(image){const article=store.article(image[1]!);if(!article)return json({error:'Unknown article'},404);return await media.get(String(article.url),image[2]==='icon',typeof article.image_url==='string'?article.image_url:undefined);}
-        const file=path==='/'||/^\/(article|post)\/[a-f0-9]{32}$/.test(path)?'index.html':path.startsWith('/assets/')?decodeURIComponent(path.slice(1)):null;
+        const file=path==='/'||/^\/(article|post)\/[a-f0-9]{32}$/.test(path)?'index.html':path==='/site.webmanifest'?'site.webmanifest':path.startsWith('/assets/')?decodeURIComponent(path.slice(1)):null;
         if(!file||file.includes('..')||file.includes('\\')||file.includes('\0'))return json({error:'Not found'},404);
-        const asset=Bun.file(join(app,file));if(!await asset.exists())return json({error:'Not found'},404);
-        return new Response(asset,{headers:{'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'}});
+        return await serveStatic(app,file,request)??json({error:'Not found'},404);
       }
       if(request.method==='POST') {
         const value=await body(request);
@@ -163,7 +163,7 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
     }catch(error){return json({error:error instanceof Error?error.message:'Request failed'},400);}
     })();
     const type=response.headers.get('Content-Type')||'';
-    if(response.ok&&request.headers.get('Accept-Encoding')?.includes('gzip')&&/json|javascript|text\//.test(type)) {
+    if(response.ok&&!response.headers.has('Content-Encoding')&&request.headers.get('Accept-Encoding')?.includes('gzip')&&/json|javascript|text\//.test(type)) {
       const bytes=await response.arrayBuffer();
       if(bytes.byteLength>1024){const headers=new Headers(response.headers);headers.set('Content-Encoding','gzip');headers.set('Vary','Accept-Encoding');headers.delete('Content-Length');return new Response(Bun.gzipSync(bytes),{status:response.status,headers});}
       return new Response(bytes,{status:response.status,headers:response.headers});

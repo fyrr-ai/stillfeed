@@ -79,7 +79,7 @@ try{
     await p.locator('#fontSpecimen').evaluate(el=>el.remove());
     await p.evaluate(()=>document.documentElement.style.fontSize='200%');
     for(const size of [320,390,430]){await p.setViewportSize({width:size,height:844});await sleep(100);check(`${size}: 200% text fits without horizontal scrolling`,await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));}
-    await p.setViewportSize({width:320,height:844});await open();check('options remain usable at 200% text size',await p.locator('#searchInput').isVisible()&&await p.evaluate(()=>document.querySelector('#optionsSheet').scrollWidth<=innerWidth));await close();
+    await p.setViewportSize({width:320,height:844});await open();await p.locator('#searchInput').waitFor();check('options remain usable at 200% text size',await p.locator('#searchInput').isVisible()&&await p.evaluate(()=>document.querySelector('#optionsSheet').scrollWidth<=innerWidth));await close();
     await p.evaluate(()=>document.documentElement.style.fontSize='');await p.setViewportSize({width,height:844});await p.evaluate(()=>scrollTo(0,0));
     check('article title previews are bounded while post text stays complete',await p.evaluate(()=>getComputedStyle(document.querySelector('.article h2')).webkitLineClamp==='4'&&getComputedStyle(document.querySelector('.post-text')).webkitLineClamp==='none'));
   }
@@ -122,7 +122,8 @@ try{
   await select('scope','all');await select('format','article');await p.waitForFunction(()=>document.querySelectorAll('.feed-card.tweet').length===0&&document.querySelectorAll('.feed-card.article').length>0);check(`${width}: articles-only uses a filtered API query`,await p.locator('.feed-card.tweet').count()===0&&await p.locator('.feed-card.article').count()>0);
   await p.locator('#searchInput').fill('zzzznoresultszzzz');await p.waitForSelector('#empty:not([hidden])');check(`${width}: empty search is explained`,(await p.locator('#emptyTitle').innerText())==='No matching results');
   await p.getByRole('button',{name:'Clear search',exact:true}).click();await p.waitForSelector('.feed-card');check(`${width}: SDK clear returns focus`,await p.locator('#searchInput').evaluate(el=>el===document.activeElement));
-  await close();const article=p.locator('.feed-card.article').first();await article.scrollIntoViewIfNeeded();check(`${width}: source identity is present and a missing image leaves no empty preview`,await article.locator('.card-row > .avatar').isVisible()&&await article.locator('.preview').count()===0);
+  await close();// A text article, not a video: a video's reader starts with the player, where gestures rightly never start.
+  const article=p.locator('.feed-card.article').filter({hasNot:p.locator('.format-video')}).first();await article.scrollIntoViewIfNeeded();check(`${width}: source identity is present and a missing image leaves no empty preview`,await article.locator('.card-row > .avatar').isVisible()&&await article.locator('.preview').count()===0);
   check(`${width}: articles use the compact accessible A badge`,await article.locator('.format-article').getAttribute('aria-label')==='Article');
   const original=await article.getAttribute('data-url');
   await p.route('**/api/article/*/content',route=>route.fulfill({json:{title:'A readable article',author:'Test author',html:'<p>Full article body from the reading endpoint.</p>',url:original}}));
@@ -155,7 +156,8 @@ try{
     await swipe(100,250,150,110);check('diagonal dragging does not navigate',p.url()===route);
     await swipe(100,250,45,0);check('short horizontal drag does not navigate',p.url()===route);
     await swipe(260,250,-150,0);await sleep(300);check('left swipe in the article detail does nothing',p.url()===route&&await p.locator('#detailSave').getAttribute('aria-pressed')==='false');await p.locator('#detailSave').click();await p.waitForFunction(()=>document.querySelector('#detailSave').getAttribute('aria-pressed')==='true');
-    await swipe(100,250,160,0);await p.locator('#articlePage').waitFor({state:'hidden'});check('right swipe goes back to the feed',new URL(p.url()).pathname==='/');
+    // Start on article text: controls such as the Full article row never start a gesture.
+    const prose=await p.locator('.reading-prose p').nth(3).boundingBox();await swipe(100,Math.round(prose.y+prose.height/2),160,0);await p.locator('#articlePage').waitFor({state:'hidden'});check('right swipe goes back to the feed',new URL(p.url()).pathname==='/');
     let refreshCalls=0;p.on('request',request=>{if(request.url().endsWith('/api/refresh')&&request.method()==='POST')refreshCalls++;});
     await p.evaluate(()=>scrollTo(0,0));await sleep(100);await swipe(160,150,0,45);await sleep(100);check('short pull does not refresh',refreshCalls===0);
     await swipe(160,150,0,150,true);await sleep(100);check('cancelled pull does not refresh',refreshCalls===0&&await p.locator('#gestureHint').isHidden());

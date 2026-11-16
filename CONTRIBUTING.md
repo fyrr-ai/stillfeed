@@ -15,7 +15,7 @@ Before a pull request:
 bun run check && bun test src && bun run build
 ```
 
-`assets/main.js` is committed, so rebuild it when you change anything under `ui/`; CI fails if it is stale.
+The built UI (`assets/build/` and `index.html`, generated from `ui/index.html`) is committed, so rebuild it when you change anything under `ui/` or `assets/styles.css`; CI fails if it is stale. `bun run test:perf` checks the speed budgets (first-paint download, API latency).
 
 ## Ground rules
 

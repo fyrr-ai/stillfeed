@@ -15,4 +15,5 @@ jobs:
       - run: bun run check
       - run: bun test src
       - name: The committed UI bundle matches the source
-        run: bun run build && git diff --exit-code assets/main.js
+        run: bun run build && test -z "$(git status --porcelain assets/build index.html)"
+      - run: bun run test:perf

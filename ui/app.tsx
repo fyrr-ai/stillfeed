@@ -1,14 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { animate, motion, useMotionValue } from 'motion/react';
 import { Drawer, DrawerBackdrop, DrawerContent, DrawerTrigger } from '@ui-sdk/react/drawer';
 import { Toast, ToastAction, ToastRegion, ToastTitle, createToaster } from '@ui-sdk/react/toast';
 import { Card, type CardActions } from './card';
-import { Detail, type DetailRoute } from './detail';
+import type { DetailRoute } from './detail';
 import { EmptyState, SetupPanel, type EmptyKind } from './empty';
 import { Icon } from './icons';
 import { t } from './i18n';
-import { Sidebar, type SettingsSection, type SidebarStatus } from './sidebar';
+import type { SettingsSection, SidebarStatus } from './sidebar';
+// The reader (with motion) and the settings load on first use; the feed needs neither.
+const loadDetail = () => import('./detail'), loadSidebar = () => import('./sidebar');
+const Detail = lazy(() => loadDetail().then(m => ({ default: m.Detail })));
+const Sidebar = lazy(() => loadSidebar().then(m => ({ default: m.Sidebar })));
+// Once the feed is on screen and the browser is idle, fetch them anyway, so the first tap never waits.
+const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 4000 }) : setTimeout(work, 1500);
+addEventListener('load', () => idle(() => { void loadDetail(); void loadSidebar(); }), { once: true });
 import {
   api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
   type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status,
@@ -61,6 +67,9 @@ export function App() {
   const [sourceCount, setSourceCount] = useState<number | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem(SETUP_DISMISSED) === '1');
   const [route, setRouteState] = useState<DetailRoute | null>(() => { const m = detailPath.exec(location.pathname); return m ? { kind: m[1] as 'article' | 'post', id: m[2]!, article: null } : null; });
+  // The reader (and motion with it) is fetched the first time an article opens, not on start.
+  const [readerUsed, setReaderUsed] = useState(() => route !== null);
+  if (route && !readerUsed) setReaderUsed(true);
   const [optionsOpen, setOptionsOpenState] = useState(false);
   const [settings, setSettingsState] = useState<Settings>({ windowHours: 72, refreshEvery: 2, nightPause: true, retentionDays: 30 });
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -85,7 +94,8 @@ export function App() {
   const listRef = useRef<HTMLElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const readerRef = useRef<HTMLElement>(null);
-  const pullY = useMotionValue(0);
+  // Pull to refresh moves the list with a plain transform; motion stays in the lazily loaded reader.
+  const pull = (y: number, settle = false) => { const feed = listRef.current; if (!feed) return; feed.style.transition = settle && !reducedMotion.matches ? 'transform .32s cubic-bezier(.2,.9,.3,1.15)' : 'none'; feed.style.transform = y ? `translateY(${y}px)` : ''; };
 
   const setPrefs = (next: Preferences) => { r.prefs = next; setPrefsState(next); setQuery(next.q); storePreferences(next); };
   const setItems = (next: Article[]) => { r.items = next; setItemsState(next); };
@@ -156,7 +166,8 @@ export function App() {
       else if (append && r.feed) { params.set('batch', r.feed.batch); params.set('offset', String(r.feed.next || 0)); }
       else {
         const p = r.prefs;
-        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', p.hideSeen && p.view === 'feed' ? '1' : '0'); params.set('hours', String(r.settings.windowHours));
+        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', p.hideSeen && p.view === 'feed' ? '1' : '0');
+        // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
         if (r.feed && p.hideSeen && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
       }
       const result = await api<Feed>('/api/feed?' + params);
@@ -432,11 +443,12 @@ export function App() {
     if (moreRef.current) sentinel.observe(moreRef.current);
     void (async () => {
       try {
-        setSettings(await api<Settings>('/api/settings'));
+        const settingsLoaded = api<Settings>('/api/settings').then(setSettings);
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
         void optional<Source[]>('/api/sources').then(list => { if (Array.isArray(list)) setSourceCount(list.length); });
         // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
         await loadView(loadSession('stillfeed-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
+        await settingsLoaded;
         void loadHot();
         await refreshStatus(); void flush(); save(); await followRoute();
       } catch (error) { setMessage(error instanceof Error ? error.message : t('error.open')); setBooting(false); }
@@ -461,7 +473,7 @@ export function App() {
   useEffect(() => {
     const reader = readerRef.current!;
     let start: { x: number; y: number } | null = null, pulling = false, distance = 0;
-    const reset = () => { start = null; pulling = false; hint(null); animate(pullY, 0, reducedMotion.matches ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 38 }); };
+    const reset = () => { start = null; pulling = false; hint(null); pull(0, true); };
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0]!;
       start = event.touches.length === 1 && scrollY <= 0 && unobscured() && !refreshingRef.current && gestureAllowed(event.target, touch.clientX) ? { x: touch.clientX, y: touch.clientY } : null;
@@ -476,7 +488,7 @@ export function App() {
       pulling = true; distance = dy;
       if (event.cancelable) event.preventDefault();
       hint(dy >= COMMIT ? t('gesture.release') : t('gesture.pull'), dy, 'pull');
-      if (!reducedMotion.matches) pullY.set(resist(dy) * .6);
+      if (!reducedMotion.matches) pull(resist(dy) * .6);
     };
     const onEnd = () => { const go = pulling && distance >= COMMIT; if (start || pulling) reset(); if (go) { void latest.current.reloadFresh(); void latest.current.refresh(); } };
     const onCancel = () => { if (start || pulling) reset(); };
@@ -538,11 +550,11 @@ export function App() {
             <DrawerTrigger className="icon-button" aria-label={t('options.open')} title={t('options.open')}><Icon name="menu" /></DrawerTrigger>
             <DrawerBackdrop className="side-backdrop" />
             <DrawerContent id="optionsSheet" className="sidebar">
-              <Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
+              <Suspense fallback={null}><Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
                 status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sourcesChanged={() => { sourcesChanged = true; }} notify={text => toaster(text)}
                 config={config} counts={!hotOpen && view === 'feed' && feed ? { unseen, total } : null}
                 markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()}
-                sourcesLoaded={list => setSourceCount(list.length)} />
+                sourcesLoaded={list => setSourceCount(list.length)} /></Suspense>
             </DrawerContent>
           </Drawer>
         </div>
@@ -556,9 +568,9 @@ export function App() {
         <p id="message" className="notice error" role="alert" hidden={!message}>{message}</p>
         {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSettings} dismiss={dismissSetup} />}
         <div id="loading" className="skeleton" aria-label={t('feed.loading')} hidden={!booting}><div></div><div></div><div></div></div>
-        <motion.section id="feed" ref={listRef} aria-label={t('feed.label')} style={{ y: pullY }}>
+        <section id="feed" ref={listRef} aria-label={t('feed.label')}>
           {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} />)}
-        </motion.section>
+        </section>
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSettings} />}
         {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSettings} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
@@ -569,7 +581,7 @@ export function App() {
         </div>
       </main>
     </div>
-    <Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} />
+    {readerUsed && <Suspense fallback={null}><Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} /></Suspense>}
     <GestureHint />
     <ToastRegion toaster={toaster} className="toast-region">{() => <Toast className="toast"><ToastTitle className="toast-title" /><ToastAction className="toast-action" /></Toast>}</ToastRegion>
   </>;
