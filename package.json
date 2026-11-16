@@ -21,7 +21,8 @@
     "dev": "RADAR_HOME=./.dev bun --watch src/server.ts",
     "build": "bun build ui/main.tsx --target browser --minify --define process.env.NODE_ENV='\"production\"' --outfile assets/main.js",
     "check": "tsc --noEmit",
-    "test": "bun test src"
+    "test": "bun test src",
+    "test:ui": "node tests/ui.mjs"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

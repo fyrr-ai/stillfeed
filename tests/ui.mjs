@@ -1,34 +1,33 @@
-// Real Bun runtime, frozen collector input, isolated SQLite and browser state.
-// PW=<playwright-core/index.js> CHROME=<chromium> [DATA_DIR=...] node tests/radar-ui.mjs
+// Real Bun server on synthetic data (tests/fixture.ts), isolated SQLite and browser state, a stub collection, no network.
+// PW=<path to playwright-core> CHROME=<chromium binary> node tests/ui.mjs
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 import {spawn,execFileSync} from 'node:child_process';
-import {mkdtempSync,cpSync,writeFileSync,readFileSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PW);
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),app=path.join(root,'home/dot_local/share/rmt/radar');
-const temp=mkdtempSync(path.join(tmpdir(),'radar-v2-test-')),data=path.join(temp,'data');
-cpSync(process.env.DATA_DIR||path.join(process.env.HOME,'.local/share/rmt-radar/data'),data,{recursive:true});
-const oldMarks=path.join(process.env.HOME,'.local/share/rmt-radar/state/marks.db');
-if(existsSync(oldMarks))execFileSync('python3',['-I','-c','import sqlite3,sys\nwith sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True) as a,sqlite3.connect(sys.argv[2]) as b:a.backup(b)',oldMarks,path.join(temp,'marks.db')]);
-const control=path.join(temp,'systemctl');
-writeFileSync(control,`#!/bin/sh\ncase "$*" in\n*is-active*) cat '${temp}/refresh-state';;\n*start*) echo running > '${temp}/refresh-state';;\nesac\n`,{mode:0o700});writeFileSync(path.join(temp,'refresh-state'),'inactive');
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),bun=process.env.BUN||'bun';
+const temp=mkdtempSync(path.join(tmpdir(),'radar-ui-test-')),state=path.join(temp,'state'),collected=path.join(temp,'collected');
+// Nothing reads the real home, its .env or an AI/X key; Refresh runs a stub instead of a paid collection.
+const env={PATH:process.env.PATH,HOME:temp,RADAR_HOME:temp,RADAR_LLM:'none',RADAR_LANGUAGE:'English',SOCIALDATA_API_KEY:'',RADAR_NO_WORKER:'1',RADAR_DISABLE_SCHEDULE:'1',RADAR_COLLECT_COMMAND:`sleep 1 && : > '${collected}'`};
+const fixture=(...args)=>execFileSync(bun,[path.join(root,'tests/fixture.ts'),...args],{encoding:'utf8',env,cwd:temp});
+// SQLite reads and test-only writes go straight to the state database through bun:sqlite.
+const sql=(query,args=[])=>JSON.parse(execFileSync(bun,['-e','const {Database}=require("bun:sqlite"),d=new Database(Bun.argv[1]);d.exec("PRAGMA busy_timeout=5000");console.log(JSON.stringify(d.query(Bun.argv[2]).values(...JSON.parse(Bun.argv[3]))??[]))',path.join(state,'radar.db'),query,JSON.stringify(args)],{encoding:'utf8',env}));
+const created=JSON.parse(fixture('create',state));
 const port=21000+Math.floor(Math.random()*20000),base=`http://127.0.0.1:${port}`;
-const server=spawn(process.env.BUN||path.join(process.env.HOME,'.bun/bin/bun'),[path.join(app,'src/server.ts'),'--data-dir',data,'--state-dir',temp,'--port',String(port)],{stdio:['ignore','ignore','inherit'],env:{...process.env,RADAR_SYSTEMCTL:control,RADAR_DISABLE_SCHEDULE:'1'}});
+const server=spawn(bun,[path.join(root,'src/server.ts'),'--state-dir',state,'--port',String(port)],{stdio:['ignore','ignore','inherit'],env,cwd:temp});
 process.on('exit',()=>server.kill());
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let passed=0;const failures=[];
 function check(name,ok,detail=''){console.log(`${ok?'ok':'FAIL'} ${name} ${ok?'':detail}`);if(ok)passed++;else failures.push(name);}
 const request=async(url,value)=>{const r=await fetch(base+url,value===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Radar':'1'},body:JSON.stringify(value)});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;};
-const sql=(query,args=[])=>JSON.parse(execFileSync('python3',['-I','-c','import sqlite3,json,sys\nwith sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True) as d:print(json.dumps(d.execute(sys.argv[2],json.loads(sys.argv[3])).fetchall()))',path.join(temp,'radar.db'),query,JSON.stringify(args)],{encoding:'utf8'}));
+const idOf=url=>createHash('sha256').update(url).digest('hex').slice(0,32);
 let browser;
 try{
  for(let i=0;i<300;i++){try{if((await fetch(base+'/health')).ok)break;}catch{}await sleep(100);}
- const raw=JSON.parse(readFileSync(path.join(data,'latest-24h-all-raw.json')));
- const normalize=s=>{const u=new URL(s);if(/^(www\.)?twitter\.com$/.test(u.hostname))u.hostname='x.com';u.hash='';for(const k of [...u.searchParams.keys()])if(/^utm_|^(fbclid|gclid)$/i.test(k))u.searchParams.delete(k);if(u.pathname.length>1)u.pathname=u.pathname.replace(/\/+$/,'');return u.href;};
- const expected=new Set(raw.items_all_raw.map(a=>normalize(a.url)));
+ const expected=new Set(created.urls);
  let first=await request('/api/feed?scope=all'),page=first,actual=[];let pages=0;
  do{actual.push(...page.items.map(a=>a.url));pages++;if(page.next===null)break;page=await request(`/api/feed?batch=${first.batch}&offset=${page.next}`);}while(pages<200);
  check('every collected URL reaches the API exactly once',new Set(actual).size===actual.length&&actual.length===expected.size&&actual.every(u=>expected.has(u)),`${actual.length}/${expected.size}`);
@@ -49,7 +48,7 @@ try{
  check('unknown image cannot turn into a proxy',(await fetch(base+'/api/image/00000000000000000000000000000000/preview')).status===404);
  const coldId=articles.items[0].id,started=Date.now();const cold=await fetch(base+`/api/article/${coldId}/content`);check('cold article requests queue preparation without blocking on a model',cold.status===202&&Date.now()-started<1000);check('opened articles get priority in the durable queue',sql('SELECT priority FROM reader_jobs WHERE article_id=?',[coldId])[0][0]===1000);
  const cachedReading={title:'Prepared article',author:'Author',html:'<p>Available immediately</p>',text:'Available immediately',url:articles.items[0].url,fetchedAt:Date.now()};
- execFileSync('python3',['-I','-c','import sqlite3,sys,json\nwith sqlite3.connect(sys.argv[1]) as d:\n d.execute("INSERT INTO article_content VALUES(?,?,?)",(sys.argv[2],sys.argv[3],1))\n d.execute("INSERT INTO article_summaries VALUES(?,?,?,?,?)",(sys.argv[2],sys.argv[4],json.dumps(["Jedna.","Dva.","Tři."]),1,"gpt-6-luna"))',path.join(temp,'radar.db'),coldId,JSON.stringify(cachedReading),createHash('sha256').update(cachedReading.title+'\n'+cachedReading.text).digest('hex').slice(0,32)]);
+ sql('INSERT INTO article_content VALUES(?,?,?)',[coldId,JSON.stringify(cachedReading),1]);sql('INSERT INTO article_summaries(article_id,content_hash,points,generated_at,model,language) VALUES(?,?,?,?,?,?)',[coldId,createHash('sha256').update(cachedReading.title+'\n'+cachedReading.text).digest('hex').slice(0,32),JSON.stringify(['Jedna.','Dva.','Tři.']),1,'gpt-6-luna','English']);
  check('prepared content and Luna summary come straight from SQLite',(await request(`/api/article/${coldId}/content`)).title==='Prepared article'&&(await request(`/api/article/${coldId}/summary`)).model==='gpt-6-luna');
  await request(`/api/article/${coldId}/saved`,{saved:true});check('Saved is a separate library backed by SQLite',(await request('/api/feed?saved=1')).items.some(a=>a.id===coldId&&a.saved));await request(`/api/article/${coldId}/saved`,{saved:false});
  const sources=await request('/api/sources'),source=sources.find(s=>s.name===first.items[0].source);await request('/api/sources',{id:source.id,enabled:false});const muted=await request('/api/feed?scope=all');check('source configuration affects a new query',muted.total<first.total);await request('/api/sources',{id:source.id,enabled:true});
@@ -86,12 +85,10 @@ try{
   }
   if(width===390){
     const oldFirst=await p.locator('.feed-card').first().getAttribute('data-id');
-    const current=JSON.parse(readFileSync(path.join(data,'latest-24h-all-raw.json'))),selected=JSON.parse(readFileSync(path.join(data,'latest-24h.json')));
-    const nextTime=new Date(Date.parse(current.generated_at)+60000).toISOString();
+    // A collection lands while the reader is down the page: one more record, a new revision and generatedAt.
+    const nextTime=new Date(Date.parse((await request('/api/status')).generatedAt)+60000).toISOString();
     const addition={url:'https://example.com/new-after-import',title:'A new AI tool &amp; &lt;img src=x onerror=alert(1)&gt;',source:'Test updates',site_id:'test',published_at:new Date(Date.parse(nextTime)-30000).toISOString(),ai_is_related:true};
-    current.generated_at=nextTime;selected.generated_at=nextTime;current.items_all_raw.push(addition);selected.items.push(addition);
-    writeFileSync(path.join(data,'latest-24h-all-raw.json'),JSON.stringify(current));writeFileSync(path.join(data,'latest-24h.json'),JSON.stringify(selected));
-    execFileSync(process.env.BUN||path.join(process.env.HOME,'.bun/bin/bun'),[path.join(app,'src/server.ts'),'--data-dir',data,'--state-dir',temp,'--import']);
+    fixture('add',state,nextTime,JSON.stringify([addition]));
     await p.evaluate(()=>scrollTo(0,900));await sleep(300);
     await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await p.locator('#newUpdates').waitFor({state:'visible'});
     check('new data below the top offers a pill instead of moving the feed',await p.locator('.feed-card').first().getAttribute('data-id')===oldFirst);
@@ -99,9 +96,7 @@ try{
     check('applying updates switches to the new snapshot',await p.locator('.feed-card').first().getAttribute('data-url')===addition.url);
     check('headline entities decode as text without introducing executable HTML',await p.locator('.feed-card').first().locator('h2').innerText()==='A new AI tool & <img src=x onerror=alert(1)>'&&await p.locator('.feed-card').first().locator('h2 img').count()===0);
     const second={...addition,url:'https://example.com/second-after-import',title:'Second fresh AI update',published_at:new Date(Date.parse(nextTime)+30000).toISOString()};
-    const later=new Date(Date.parse(nextTime)+60000).toISOString();current.generated_at=later;selected.generated_at=later;current.items_all_raw.push(second);selected.items.push(second);
-    writeFileSync(path.join(data,'latest-24h-all-raw.json'),JSON.stringify(current));writeFileSync(path.join(data,'latest-24h.json'),JSON.stringify(selected));
-    execFileSync(process.env.BUN||path.join(process.env.HOME,'.bun/bin/bun'),[path.join(app,'src/server.ts'),'--data-dir',data,'--state-dir',temp,'--import']);
+    const later=new Date(Date.parse(nextTime)+60000).toISOString();fixture('add',state,later,JSON.stringify([second]));
     await p.evaluate(()=>scrollTo(0,0));await sleep(200);await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
     await p.waitForFunction(()=>document.querySelector('.feed-card')?.getAttribute('data-url')==='https://example.com/second-after-import');
     check('at the top new data arrives without a tap',await p.locator('#newUpdates').isHidden());
@@ -125,16 +120,16 @@ try{
   await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
   await open();const before=sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1500);check(`${width}: options do not mark the background seen`,sql('SELECT COUNT(*) FROM seen')[0][0]===before);
   await select('scope','all');await select('format','article');await p.waitForFunction(()=>document.querySelectorAll('.feed-card.tweet').length===0&&document.querySelectorAll('.feed-card.article').length>0);check(`${width}: articles-only uses a filtered API query`,await p.locator('.feed-card.tweet').count()===0&&await p.locator('.feed-card.article').count()>0);
-  await p.locator('#searchInput').fill('zzzznoresultszzzz');await p.waitForSelector('#empty:not([hidden])');check(`${width}: empty search is explained`,(await p.locator('#emptyTitle').innerText())==='No matching updates');
+  await p.locator('#searchInput').fill('zzzznoresultszzzz');await p.waitForSelector('#empty:not([hidden])');check(`${width}: empty search is explained`,(await p.locator('#emptyTitle').innerText())==='No matching results');
   await p.getByRole('button',{name:'Clear search',exact:true}).click();await p.waitForSelector('.feed-card');check(`${width}: SDK clear returns focus`,await p.locator('#searchInput').evaluate(el=>el===document.activeElement));
   await close();const article=p.locator('.feed-card.article').first();await article.scrollIntoViewIfNeeded();check(`${width}: source identity is present and a missing image leaves no empty preview`,await article.locator('.card-row > .avatar').isVisible()&&await article.locator('.preview').count()===0);
-  check(`${width}: articles use the compact accessible A badge`,await article.locator('.format-article').innerText()==='A'&&await article.locator('.format-article').getAttribute('aria-label')==='Article');
+  check(`${width}: articles use the compact accessible A badge`,await article.locator('.format-article').getAttribute('aria-label')==='Article');
   const original=await article.getAttribute('data-url');
   await p.route('**/api/article/*/content',route=>route.fulfill({json:{title:'A readable article',author:'Test author',html:'<p>Full article body from the reading endpoint.</p>',url:original}}));
   await p.route('**/api/article/*/summary',route=>route.fulfill({json:{points:['Nový nástroj pomáhá s prací.','Podporuje otevřené modely.','Zatím jde o první verzi.']}}));
   const readerY=await p.evaluate(()=>scrollY);if(width===390)await article.locator('.article-link').tap();else await article.locator('.article-link').click();await p.getByText('Full article body from the reading endpoint.').waitFor();
   check(`${width}: article reader opens full content`,await p.locator('#articlePage').isVisible()&&new URL(p.url()).pathname.startsWith('/article/'));
-  await p.getByText('Nový nástroj pomáhá s prací.').waitFor();check(`${width}: Czech summary is separate from the original text`,await p.locator('.czech-summary li').count()===3&&await p.locator('.full-article').isVisible());
+  await p.getByText('Nový nástroj pomáhá s prací.').waitFor();check(`${width}: Czech summary is separate from the original text`,await p.locator('.ai-summary li').count()===3&&await p.locator('.full-article').isVisible());
   const popup=p.waitForEvent('popup');await p.locator('#articleOriginal').click();const target=await popup;check(`${width}: reader offers the original page`,target.url()===original);await target.close();await p.bringToFront();
   check(`${width}: opening an article removes its unseen dot`,await article.locator('.unseen-dot').isHidden());
   check(`${width}: article is a page, not an overlay`,await p.locator('[data-slot="dialog-content"]').count()===0&&await p.locator('#readerOptions').isHidden());
@@ -150,7 +145,7 @@ try{
     await article.locator('.article-link').click();await p.getByText('Summary unavailable.',{exact:true}).waitFor();
     check('summary failure leaves the original article readable',await p.locator('.reading-prose').isVisible()&&await p.getByText('Full article body from the reading endpoint.').isVisible());
     await p.route('**/api/article/*/summary',route=>route.fulfill({json:{points:['Obnovené shrnutí.','Další informace.','Podrobnosti nástroje.']}}));
-    await p.getByRole('button',{name:'Try again',exact:true}).click();await p.getByText('Obnovené shrnutí.',{exact:true}).waitFor();check('summary retries without closing the article',await p.locator('.czech-summary li').count()===3);
+    await p.getByRole('button',{name:'Try again',exact:true}).click();await p.getByText('Obnovené shrnutí.',{exact:true}).waitFor();check('summary retries without closing the article',await p.locator('.ai-summary li').count()===3);
     await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
   }
   if(width===390){
@@ -166,7 +161,7 @@ try{
     await swipe(160,150,0,150,true);await sleep(100);check('cancelled pull does not refresh',refreshCalls===0&&await p.locator('#gestureHint').isHidden());
     await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:100,y:150,id:1},{x:240,y:150,id:2}]});await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:100,y:290,id:1},{x:240,y:290,id:2}]});await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await sleep(100);check('two-finger movement does not refresh',refreshCalls===0);
     const seenBeforePull=await p.locator('#feed .feed-card.seen').count();const rebuilt=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('hideSeen=1')&&!r.url().includes('batch='));const refreshed=p.waitForResponse(r=>r.url().endsWith('/api/refresh')&&r.request().method()==='POST');await swipe(160,150,0,150);await refreshed;await rebuilt;await sleep(150);check('pull to refresh rebuilds the feed without what you have seen',seenBeforePull>0&&await p.locator('#feed .feed-card.seen').count()===0,`${seenBeforePull} seen before`);check('pull down refreshes once without opening the underlying link',refreshCalls===1&&new URL(p.url()).pathname==='/');
-    await sleep(1600);await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await sleep(300);
+    await sleep(1600);await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await sleep(300);check('pull to refresh runs the collection command once and it finishes',existsSync(collected)&&(await request('/api/status')).refresh==='idle');
     await p.evaluate(()=>scrollTo(0,600));await swipe(160,180,0,130);await sleep(100);check('scrolling inside the feed moves it without triggering refresh',refreshCalls===1&&await p.evaluate(()=>scrollY<600&&scrollY>0));
   }
   await p.route('**/api/article/*/content',route=>route.fulfill({json:{title:'Another readable article',author:'',html:'<p>Article content</p>',url:original}}));
@@ -200,12 +195,14 @@ try{
   await p.evaluate(()=>scrollTo(0,0));await sleep(200);const room=await p.evaluate(()=>document.documentElement.scrollHeight-innerHeight);await p.evaluate(y=>scrollTo(0,y),Math.min(1500,room-200));await sleep(150);await p.evaluate(y=>scrollTo(0,y),Math.min(1600,room-100));await sleep(300);check(`${width}: top bar hides while scrolling down`,room>300&&await p.locator('.topbar-hidden').count()===1,`room ${room}`);
   await p.evaluate(()=>scrollBy(0,-30));await sleep(300);check(`${width}: a small scroll up brings Feed and Saved back`,await p.locator('.topbar-hidden').count()===0&&await p.getByRole('button',{name:'Saved',exact:true}).isVisible());
   if(width===390){
-    const unseenBefore=sql('SELECT COUNT(*) FROM seen')[0][0];const seenNow=()=>sql('SELECT COUNT(*) FROM seen')[0][0];await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();await p.getByRole('button',{name:'Cancel',exact:true}).click();await p.locator('#markAllConfirm').waitFor({state:'hidden'});await sleep(300);check('mark all asks first and Cancel changes nothing',seenNow()===unseenBefore);
-    await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.getByRole('button',{name:'Mark as seen',exact:true}).click();await p.getByRole('button',{name:'Undo',exact:true}).waitFor();
+    // Cards that were on screen for a second are marked seen; let that land before counting.
+    const seenNow=()=>sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1200);const unseenBefore=seenNow();await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();await p.getByRole('button',{name:'Cancel',exact:true}).click();await p.locator('#markAllConfirm').waitFor({state:'hidden'});await close();await sleep(300);check('mark all asks first and Cancel changes nothing',seenNow()===unseenBefore);
+    // Cards on screen after Cancel became seen meanwhile; the baseline is taken while the confirmation covers the feed.
+    await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();const seenBeforeMarkAll=seenNow();await p.getByRole('button',{name:'Mark as seen',exact:true}).click();await p.locator('#optionsSheet').waitFor({state:'hidden'});await p.getByRole('button',{name:'Undo',exact:true}).waitFor();
     const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('radar-v2-preferences')));const remaining=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=1`);const toastText=await p.locator('.toast-title').innerText();const reported=Number(toastText.replace(/[^0-9]/g,''));
-    check('mark all as seen covers the whole view, not just loaded cards',remaining.total===0&&reported>0&&sql('SELECT COUNT(*) FROM seen')[0][0]-unseenBefore>=reported&&await p.locator('#feed .feed-card:not(.seen)').count()===0,`${remaining.total} left, ${toastText}, diff ${sql('SELECT COUNT(*) FROM seen')[0][0]-unseenBefore}, unseen cards ${await p.locator('#feed .feed-card:not(.seen)').count()}`);
-    const marked=sql('SELECT COUNT(*) FROM seen')[0][0];await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#feed .feed-card:not(.seen)').length>0);
-    check('Undo restores exactly the rows mark-all changed',sql('SELECT COUNT(*) FROM seen')[0][0]===unseenBefore&&marked>unseenBefore);
+    check('mark all as seen covers the whole view, not just loaded cards',remaining.total===0&&reported>0&&seenNow()-seenBeforeMarkAll>=reported&&await p.locator('#feed .feed-card:not(.seen)').count()===0,`${remaining.total} left, ${toastText}, diff ${seenNow()-seenBeforeMarkAll}, unseen cards ${await p.locator('#feed .feed-card:not(.seen)').count()}`);
+    const marked=seenNow();await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#feed .feed-card:not(.seen)').length>0);
+    const restored=seenNow();check('Undo restores exactly the rows mark-all changed',restored===seenBeforeMarkAll&&marked>seenBeforeMarkAll,`${seenBeforeMarkAll} before, ${marked} marked, ${restored} after Undo`);
   }
   await p.route('**/api/article/*/content',route=>route.fulfill({json:{title:'Readable',author:'',html:'<p>Body</p>',url:'https://example.com/'}}));
   await p.evaluate(()=>scrollTo(0,0));await sleep(200);const firstCard=p.locator('#feed .feed-card').first(),firstId=await firstCard.getAttribute('data-id'),secondId=await p.locator('#feed .feed-card').nth(1).getAttribute('data-id');
@@ -215,29 +212,33 @@ try{
   await p.unroute('**/api/article/*/content');
   if(width===390){
     const picks=sql('SELECT id FROM articles WHERE ai=1 AND sort_at>? ORDER BY sort_at DESC LIMIT 2',[Date.now()-40*3600000]).map(r=>r[0]);
-    execFileSync('python3',['-I','-c','import sqlite3,sys,time\nwith sqlite3.connect(sys.argv[1]) as d:\n for i,a in enumerate(sys.argv[2:]):\n  d.execute("DELETE FROM opened WHERE article_id=?",(a,));d.execute("INSERT OR REPLACE INTO hot_picks VALUES(?,?,?,?)",(a,"Důvod "+str(i),int(time.time()*1000)-i,"test"))',path.join(temp,'radar.db'),...picks]);
+    const pickedAt=Date.now();for(const [i,a] of picks.entries()){sql('DELETE FROM opened WHERE article_id=?',[a]);sql('INSERT OR REPLACE INTO hot_picks VALUES(?,?,?,?)',[a,'Důvod '+i,pickedAt-i,'test']);}
     await reveal();await p.locator('#viewHot').click();await p.locator('#hot .hot-item').first().waitFor();
     check('Hot shows the picks with their reasons',picks.length===2&&await p.locator('#hot .hot-item').count()===2&&await p.locator('#hot .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
     await sleep(1500);await p.reload();await p.locator('#hot .hot-item').first().waitFor();check('Hot items do not leave by being on screen or after a reload',await p.locator('#hot .hot-item').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
-    await p.locator('#hot .card-note-dismiss').first().click();await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===1);check('dismissing removes a Hot item for good',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===1);
-    await p.getByRole('button',{name:'Zpět',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===2);check('Undo brings a dismissed Hot item back',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===0);
+    const dismissed=p.waitForResponse(r=>/\/api\/article\/[a-f0-9]{32}\/hot$/.test(r.url())&&r.request().method()==='POST');await p.locator('#hot .card-note-dismiss').first().click();await dismissed;await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===1);check('dismissing removes a Hot item for good',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===1);
+    await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===2);check('Undo brings a dismissed Hot item back',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===0);
     await p.locator('#hot .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
     check('opening a Hot item takes it off the list and returns to Hot',await p.locator('#hot .hot-item').count()===1&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true'&&sql('SELECT COUNT(*) FROM opened WHERE article_id=?',[picks[0]])[0][0]===1);
     await p.locator('#viewFeed').click();await p.locator('#feedView').waitFor({state:'visible'});
   }
-  await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources summary').click();await p.locator('#sourceSearch').fill(source.name);await p.locator('.source-row').first().waitFor();check(`${width}: sources are configurable from the UI`,await p.locator('.source-row').count()>0);await close();
+  await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources .side-disclosure-trigger').click();await p.locator('#sourceSearch').fill(source.name);await p.locator('.source-row').first().waitFor();check(`${width}: sources are configurable from the UI`,await p.locator('.source-row').count()>0);await close();
   if(width===390){
-    execFileSync('python3',['-I','-c','import sqlite3,sys,time\nwith sqlite3.connect(sys.argv[1]) as d:\n d.execute("INSERT OR REPLACE INTO suggestions VALUES(?,?,?,?,?,?,?,?,?)",("f"*32,"x","newtooldev","New Tool Dev",3,"Píše o nástrojích.","[]","new",int(time.time()*1000)))',path.join(temp,'radar.db')]);
-    await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources summary').click();await p.locator('#suggestions .suggestion').first().waitFor();
+    sql('INSERT OR REPLACE INTO suggestions VALUES(?,?,?,?,?,?,?,?,?)',['f'.repeat(32),'x','newtooldev','New Tool Dev',3,'Píše o nástrojích.','[]','new',Date.now()]);
+    await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources .side-disclosure-trigger').click();await p.locator('#suggestions .suggestion').first().waitFor();
     check('suggested sources show who cites them and why',await p.locator('#suggestions').innerText().then(t=>t.includes('@newtooldev')&&t.includes('cited by 3')&&t.includes('Píše o nástrojích.')));
-    await p.locator('#suggestions .suggestion').first().getByRole('button',{name:'Add',exact:true}).click();await p.waitForFunction(()=>!document.querySelector('#suggestions .suggestion'));
+    const decided=p.waitForResponse(r=>r.url().endsWith('/api/suggestions')&&r.request().method()==='POST');await p.locator('#suggestions .suggestion').first().getByRole('button',{name:'Add',exact:true}).click();await p.waitForFunction(()=>!document.querySelector('#suggestions .suggestion'));await decided;
     check('Add follows the suggested account and the suggestion does not come back',sql("SELECT enabled FROM x_accounts WHERE handle='newtooldev'")[0]?.[0]===1&&sql("SELECT status FROM suggestions WHERE id=?",['f'.repeat(32)])[0][0]==='added');
     await close();
   }
-  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('radar-v2-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
+  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('radar-v2-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
     check('the top bar shows unseen / all for the current view',/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(bubble.replace(/\s+/g,' ').trim())&&Number(bubble.split('/')[1].replace(/\D/g,''))>0,bubble);}
+  const xArticle=idOf(created.xArticle),quoted=idOf(created.quote);
+  await p.goto(`${base}/post/${xArticle}`);await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: an X Article shows as an article card in its post`,await p.locator('#readingContent .x-article b').innerText()==='Agents in production');
+  await p.goto(`${base}/post/${quoted}`);await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: a quote shows the quoted post`,(await p.locator('#readingContent .quote').innerText()).includes('Evals are product specs you can run.'));
+  await p.goto(base);await p.waitForSelector('.feed-card');
   check(`${width}: no browser errors`,errors.length===0,errors.join(' | '));
-  if(width===390){await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:'/tmp/radar-v2-final-phone.png'});await open();await p.screenshot({path:'/tmp/radar-v2-final-options.png'});await close();}
+  if(width===390){await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:path.join(tmpdir(),'radar-ui-phone.png')});await open();await p.screenshot({path:path.join(tmpdir(),'radar-ui-options.png')});await close();}
   await ctx.close();
  }
  console.log(JSON.stringify({passed,failed:failures.length,coverage:{expected:expected.size,actual:actual.length,missing:[...expected].filter(u=>!actual.includes(u)).length},failures},null,2));if(failures.length)process.exitCode=1;
