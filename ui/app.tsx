@@ -540,7 +540,7 @@ export function App() {
               <Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
                 status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sourcesChanged={() => { sourcesChanged = true; }} notify={text => toaster(text)}
                 config={config} counts={!hotOpen && view === 'feed' && feed ? { unseen, total } : null}
-                markAll={() => void markAllSeen()} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()}
+                markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()}
                 sourcesLoaded={list => setSourceCount(list.length)} />
             </DrawerContent>
           </Drawer>
