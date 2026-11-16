@@ -11,17 +11,19 @@
   <a href="docs/configuration.md"><img src="https://img.shields.io/badge/Deploy-Self--hosted-3b82f6?style=flat&amp;labelColor=27292f" alt="Deploy: Self-hosted"></a>
 </p>
 
-**What it is:** a news reader you host yourself. It has two parts, and one command starts both:
+## What it is
 
-- **A small server** (on your laptop, a home server or any VPS). Every two hours it fetches the blogs,
-  YouTube channels, news sites and X accounts you follow, keeps what is about AI and data engineering,
-  and prepares clean text and AI summaries in the background.
-- **A web app** it serves, made for the phone first. Open it in any browser, or add it to your home screen,
-  where it behaves like an app. There is nothing to install from an app store, and no account or cloud
-  service: the server and its single SQLite file are yours.
+Stillfeed is a **self-hosted news aggregator with its own web app**. You run one small server; it gathers
+the news and serves the app you read it in.
 
-In the app you scroll one timeline instead of fifty tabs, see the few things you should not miss today,
-and read any article, video or X post as clean text with a short summary in your language.
+| | |
+| --- | --- |
+| **What it does** | Every two hours it fetches the blogs, YouTube channels, news sites and X accounts you follow, keeps what is about AI and data engineering, and prepares clean text and AI summaries. |
+| **What you use** | A web app made for the phone first: a feed, the few items you should not miss today (Hot), saved items and a clean reader with a three-point summary in your language. |
+| **Where it runs** | On your laptop, a home server or any small VPS. One process and one SQLite file, started with one command or Docker. |
+| **On your phone** | Open it in the browser, or add it to your home screen to use it like an app. There is no native app and no app store. |
+| **What it needs** | Nothing else to start. Optional: an AI key (Anthropic, OpenAI-compatible or the Codex CLI) for summaries and Hot, and a SocialData key for X. |
+| **What it is not** | Not a cloud service: no account, no telemetry, nothing leaves your server except the requests to your sources and your AI provider. |
 
 [Quick start](#quick-start) · [Configuration](docs/configuration.md) · [How it works](#how-it-works) · [Development](docs/development.md)
 
@@ -33,8 +35,8 @@ and read any article, video or X post as clean text with a short summary in your
   interests, and tells you why each one matters to you.
 - **Read less, understand more.** Articles, video transcripts and X Articles open as clean text with a
   three-point AI summary in the language you choose.
-- **Private and yours.** One process and one SQLite file on your machine. No account, no telemetry. Use
-  Anthropic, any OpenAI-compatible API (including local models through Ollama), the Codex CLI, or no AI at all.
+- **Use the AI you want.** Anthropic, any OpenAI-compatible API (including local models through Ollama),
+  the Codex CLI, or no AI at all.
 
 ![Three phones: Hot shows picks with the reason each matters, Feed shows articles and X posts, Saved keeps bookmarks.](docs/assets/stillfeed-phones.png)
 
