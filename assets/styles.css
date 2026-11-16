@@ -101,8 +101,6 @@ svg { flex: none; }
 /* ── Top bar ────────────────────────────────────────────────────────────────────────────────── */
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--space-1); width: 100%; max-width: var(--column); margin: 0 auto; padding: env(safe-area-inset-top) var(--space-1) 0 var(--space-1); background: color-mix(in srgb, var(--app-bg) 88%, transparent); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: transform .2s ease; }
 .topbar-hidden { transform: translateY(-100%); }
-.brand { display: none; align-items: center; gap: 8px; min-height: var(--tap); padding: 0 var(--space-3) 0 var(--space-2); color: var(--text-high); font-weight: 700; font-size: var(--text-label); letter-spacing: -.01em; }
-.brand svg { color: var(--text-low); }
 .view-tabs { display: flex; flex: 0 1 auto; gap: 2px; min-width: 0; }
 .view-tabs button { position: relative; flex: none; min-height: var(--tap); padding: 0 var(--space-3); border: 0; background: none; color: var(--text-low); font-size: var(--text-label); font-weight: 600; }
 .view-tabs button:hover { color: var(--text-high); }
@@ -110,6 +108,10 @@ svg { flex: none; }
 .view-tabs button[aria-pressed=true]::after { content: ''; position: absolute; bottom: 0; left: var(--space-3); width: calc(100% - 2 * var(--space-3)); height: 2px; border-radius: 2px; background: var(--text-high); }
 .view-tabs .tab-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--ui-bg); color: var(--text-high); font-size: 11px; font-weight: 700; vertical-align: 2px; }
 .top-actions { display: flex; align-items: center; margin-left: auto; }
+/* Read / total in the current snapshot: quiet, tabular, grows as you read. */
+.read-count { position: fixed; z-index: 11; top: calc(env(safe-area-inset-top) + 22px); right: max(calc((100vw - var(--column)) / 2 + 52px), 52px); transform: translateY(-50%); padding: 2px 6px; border-radius: 999px; color: var(--text-low); font-size: 12.6px; line-height: 1.3; font-variant-numeric: tabular-nums; letter-spacing: .01em; pointer-events: none; transition: right .2s ease, top .2s ease, background-color .2s ease; }
+.read-count-corner { top: calc(env(safe-area-inset-top) + 14px); right: max(calc((100vw - var(--column)) / 2 + 10px), 10px); background: color-mix(in srgb, var(--app-bg) 80%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+@media (prefers-reduced-motion: reduce) { .read-count { transition: none; } }
 
 /* ── Feed ───────────────────────────────────────────────────────────────────────────────────── */
 #readerOptions { display: flex; flex-direction: column; min-height: 100dvh; }
@@ -402,7 +404,6 @@ button.photo { cursor: zoom-in; }
   body { background: var(--canvas); }
   .reader, .topbar, #articlePage { border-inline: 1px solid var(--border-subtle); }
   .topbar { padding-left: var(--space-1); }
-  .brand { display: inline-flex; }
   .reading-content { padding-inline: 28px; }
   .article h2 { font-size: 1.125rem; }
   .topbar, .reader, #articlePage { background-color: var(--app-bg); }

@@ -516,8 +516,9 @@ export function App() {
   return <>
     <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null}>
+      {/* Read / total of this snapshot; it stays in the corner when the bar slides away. */}
+      {!hotOpen && view === 'feed' && total > 0 && <span id="readCount" className={`read-count${headerHidden ? ' read-count-corner' : ''}`} aria-label={t('feed.readCount', { read: total - unseen, total })}>{total - unseen}/{total}</span>}
       <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
-        <a className="brand" href="/" aria-label={t('app.name')} onClick={event => { event.preventDefault(); openTab('feed'); window.scrollTo({ top: 0 }); }}><Icon name="radar" size={20} /><span>{t('app.name')}</span></a>
         <nav className="view-tabs" aria-label={t('tabs.label')}>
           <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>
           <button id="viewFeed" aria-pressed={!hotOpen && view === 'feed'} onClick={() => openTab('feed')}>{t('tabs.feed')}</button>

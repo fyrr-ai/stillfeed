@@ -4,6 +4,7 @@
 export const en = {
   // Top bar and tabs
   'app.name': 'Radar',
+  'feed.readCount': '{read} of {total} read',
   'app.tagline': 'Your daily signal',
   'app.title.thread': 'Thread — Radar',
   'app.title.article': '{title} — Radar',
