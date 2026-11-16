@@ -11,9 +11,17 @@
   <a href="docs/configuration.md"><img src="https://img.shields.io/badge/Deploy-Self--hosted-3b82f6?style=flat&amp;labelColor=27292f" alt="Deploy: Self-hosted"></a>
 </p>
 
-Stillfeed collects the AI and data-engineering news you follow, keeps what is relevant and shows it in one
-calm, phone-first timeline. It points out the few things you should not miss and summarizes what you open,
-in your language. It runs on your own machine.
+**What it is:** a news reader you host yourself. It has two parts, and one command starts both:
+
+- **A small server** (on your laptop, a home server or any VPS). Every two hours it fetches the blogs,
+  YouTube channels, news sites and X accounts you follow, keeps what is about AI and data engineering,
+  and prepares clean text and AI summaries in the background.
+- **A web app** it serves, made for the phone first. Open it in any browser, or add it to your home screen,
+  where it behaves like an app. There is nothing to install from an app store, and no account or cloud
+  service: the server and its single SQLite file are yours.
+
+In the app you scroll one timeline instead of fifty tabs, see the few things you should not miss today,
+and read any article, video or X post as clean text with a short summary in your language.
 
 [Quick start](#quick-start) · [Configuration](docs/configuration.md) · [How it works](#how-it-works) · [Development](docs/development.md)
 
