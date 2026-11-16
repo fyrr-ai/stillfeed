@@ -1,0 +1,29 @@
+{
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@ui-sdk/core": "0.1.0-beta.3",
+    "@ui-sdk/react": "0.1.0-beta.3",
+    "chardet": "^2.2.0",
+    "fast-xml-parser": "^5.12.1",
+    "linkedom": "^0.18.15",
+    "motion": "^14.14.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "rss-parser": "^3.13.0",
+    "sanitize-html": "^2.18.2"
+  },
+  "private": true,
+  "scripts": {
+    "build": "bun build ui/main.tsx --target browser --minify --define process.env.NODE_ENV='\"production\"' --outfile assets/main.js",
+    "check": "tsc --noEmit",
+    "test": "bun test src"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/mozilla__readability": "^0.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/sanitize-html": "^2.16.2",
+    "typescript": "^7.0.2"
+  }
+}

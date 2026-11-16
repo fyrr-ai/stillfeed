@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>AI News Radar RSS Example</title>
+  </head>
+  <body>
+    <outline text="Official AI Sources">
+      <outline
+        text="OpenAI News"
+        title="OpenAI News" ai="1"
+        type="rss"
+        xmlUrl="https://openai.com/news/rss.xml"
+        htmlUrl="https://openai.com/news"
+      />
+      <outline
+        text="Hugging Face Blog"
+        title="Hugging Face Blog" ai="1"
+        type="rss"
+        xmlUrl="https://huggingface.co/blog/feed.xml"
+        htmlUrl="https://huggingface.co/blog"
+      />
+      <outline
+        text="Google DeepMind Blog"
+        title="Google DeepMind Blog" ai="1"
+        type="rss"
+        xmlUrl="https://deepmind.google/blog/rss.xml"
+        htmlUrl="https://deepmind.google/discover/blog/"
+      />
+      <outline
+        text="Google AI Blog"
+        title="Google AI Blog" ai="1"
+        type="rss"
+        xmlUrl="https://blog.google/technology/ai/rss/"
+        htmlUrl="https://blog.google/technology/ai/"
+      />
+      <outline
+        text="Microsoft AI Blog"
+        title="Microsoft AI Blog" ai="1"
+        type="rss"
+        xmlUrl="https://news.microsoft.com/source/topics/ai/feed/"
+        htmlUrl="https://news.microsoft.com/source/topics/ai/"
+      />
+    </outline>
+    <outline text="AI Media and Builders">
+      <outline
+        text="Wired AI"
+        title="Wired AI" ai="1"
+        type="rss"
+        xmlUrl="https://www.wired.com/feed/tag/ai/latest/rss"
+        htmlUrl="https://www.wired.com/tag/artificial-intelligence/"
+      />
+      <outline
+        text="NVIDIA Generative AI Blog"
+        title="NVIDIA Generative AI Blog" ai="1"
+        type="rss"
+        xmlUrl="https://developer.nvidia.com/blog/category/generative-ai/feed/"
+        htmlUrl="https://developer.nvidia.com/blog/category/generative-ai/"
+      />
+      <outline
+        text="Simon Willison"
+        title="Simon Willison"
+        type="rss"
+        xmlUrl="https://simonwillison.net/atom/everything/"
+        htmlUrl="https://simonwillison.net/"
+      />
+    </outline>
+    <outline text="AI Labs and Official Blogs">
+      <outline
+        text="Anthropic Engineering"
+        title="Anthropic Engineering" ai="1"
+        type="rss"
+        xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"
+        htmlUrl="https://www.anthropic.com/engineering"
+      />
+      <outline
+        text="Anthropic Research"
+        title="Anthropic Research" ai="1"
+        type="rss"
+        xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml"
+        htmlUrl="https://www.anthropic.com/research"
+      />
+      <outline
+        text="Claude Blog"
+        title="Claude Blog" ai="1"
+        type="rss"
+        xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_claude.xml"
+        htmlUrl="https://claude.com/blog"
+      />
+      <outline
+        text="OpenAI Developers Blog"
+        title="OpenAI Developers Blog" ai="1"
+        type="rss"
+        xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_openai_developer.xml"
+        htmlUrl="https://developers.openai.com/blog"
+      />
+      <outline
+        text="Mistral AI News"
+        title="Mistral AI News" ai="1"
+        type="rss"
+        xmlUrl="https://mistral.ai/rss.xml"
+        htmlUrl="https://mistral.ai/news"
+      />
+      <outline
+        text="Google Research Blog"
+        title="Google Research Blog"
+        type="rss"
+        xmlUrl="https://research.google/blog/rss/"
+        htmlUrl="https://research.google/blog/"
+      />
+      <outline
+        text="Google Gemini Blog"
+        title="Google Gemini Blog" ai="1"
+        type="rss"
+        xmlUrl="https://blog.google/products/gemini/rss/"
+        htmlUrl="https://blog.google/products/gemini/"
+      />
+      <outline
+        text="Microsoft Research Blog"
+        title="Microsoft Research Blog"
+        type="rss"
+        xmlUrl="https://www.microsoft.com/en-us/research/feed/"
+        htmlUrl="https://www.microsoft.com/en-us/research/blog/"
+      />
+      <outline
+        text="Apple Machine Learning Research"
+        title="Apple Machine Learning Research" ai="1"
+        type="rss"
+        xmlUrl="https://machinelearning.apple.com/rss.xml"
+        htmlUrl="https://machinelearning.apple.com/"
+      />
+      <outline
+        text="Ai2 Blog"
+        title="Ai2 Blog" ai="1"
+        type="rss"
+        xmlUrl="https://allenai.org/rss.xml"
+        htmlUrl="https://allenai.org/blog"
+      />
+      <outline
+        text="Epoch AI"
+        title="Epoch AI" ai="1"
+        type="rss"
+        xmlUrl="https://epoch.ai/atom.xml"
+        htmlUrl="https://epoch.ai/"
+      />
+      <outline
+        text="LangChain Blog"
+        title="LangChain Blog" ai="1"
+        type="rss"
+        xmlUrl="https://www.langchain.com/blog/rss.xml"
+        htmlUrl="https://www.langchain.com/blog"
+      />
+    </outline>
+    <outline text="Developer Tools Changelogs">
+      <outline
+        text="Cursor Changelog"
+        title="Cursor Changelog"
+        type="rss"
+        xmlUrl="https://cursor.com/changelog/rss.xml"
+        htmlUrl="https://cursor.com/changelog"
+      />
+      <outline
+        text="Windsurf Changelog"
+        title="Windsurf Changelog"
+        type="rss"
+        xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_windsurf_changelog.xml"
+        htmlUrl="https://windsurf.com/changelog"
+      />
+      <outline
+        text="Gemini CLI Releases"
+        title="Gemini CLI Releases"
+        type="rss"
+        xmlUrl="https://github.com/google-gemini/gemini-cli/releases.atom"
+        htmlUrl="https://github.com/google-gemini/gemini-cli/releases"
+      />
+      <outline
+        text="GitHub Copilot CLI Releases"
+        title="GitHub Copilot CLI Releases"
+        type="rss"
+        xmlUrl="https://github.com/github/copilot-cli/releases.atom"
+        htmlUrl="https://github.com/github/copilot-cli/releases"
+      />
+      <outline
+        text="Claude Agent SDK TypeScript Releases"
+        title="Claude Agent SDK TypeScript Releases"
+        type="rss"
+        xmlUrl="https://github.com/anthropics/claude-agent-sdk-typescript/releases.atom"
+        htmlUrl="https://github.com/anthropics/claude-agent-sdk-typescript/releases"
+      />
+      <outline
+        text="OpenAI Agents SDK Python Releases"
+        title="OpenAI Agents SDK Python Releases"
+        type="rss"
+        xmlUrl="https://github.com/openai/openai-agents-python/releases.atom"
+        htmlUrl="https://github.com/openai/openai-agents-python/releases"
+      />
+      <outline
+        text="Vercel AI SDK Releases"
+        title="Vercel AI SDK Releases"
+        type="rss"
+        xmlUrl="https://github.com/vercel/ai/releases.atom"
+        htmlUrl="https://github.com/vercel/ai/releases"
+      />
+      <outline
+        text="LangChain Releases"
+        title="LangChain Releases"
+        type="rss"
+        xmlUrl="https://github.com/langchain-ai/langchain/releases.atom"
+        htmlUrl="https://github.com/langchain-ai/langchain/releases"
+      />
+      <outline
+        text="Ollama Releases"
+        title="Ollama Releases"
+        type="rss"
+        xmlUrl="https://github.com/ollama/ollama/releases.atom"
+        htmlUrl="https://github.com/ollama/ollama/releases"
+      />
+    </outline>
+    <outline text="Researchers and Newsletters">
+      <outline
+        text="Andrej Karpathy"
+        title="Andrej Karpathy"
+        type="rss"
+        xmlUrl="https://karpathy.bearblog.dev/feed/"
+        htmlUrl="https://karpathy.bearblog.dev/"
+      />
+      <outline
+        text="Sebastian Raschka"
+        title="Sebastian Raschka" ai="1"
+        type="rss"
+        xmlUrl="https://sebastianraschka.com/rss_feed.xml"
+        htmlUrl="https://sebastianraschka.com/"
+      />
+      <outline
+        text="Latent Space"
+        title="Latent Space" ai="1"
+        type="rss"
+        xmlUrl="https://www.latent.space/feed"
+        htmlUrl="https://www.latent.space/"
+      />
+      <outline
+        text="Import AI"
+        title="Import AI" ai="1"
+        type="rss"
+        xmlUrl="https://importai.substack.com/feed"
+        htmlUrl="https://importai.substack.com/"
+      />
+      <outline
+        text="The Batch (DeepLearning.AI)"
+        title="The Batch (DeepLearning.AI)" ai="1"
+        type="rss"
+        xmlUrl="https://rsshub.bestblogs.dev/deeplearning/the-batch"
+        htmlUrl="https://www.deeplearning.ai/the-batch/"
+      />
+      <outline
+        text="Interconnects"
+        title="Interconnects" ai="1"
+        type="rss"
+        xmlUrl="https://www.interconnects.ai/feed"
+        htmlUrl="https://www.interconnects.ai/"
+      />
+      <outline
+        text="One Useful Thing"
+        title="One Useful Thing" ai="1"
+        type="rss"
+        xmlUrl="https://www.oneusefulthing.org/feed"
+        htmlUrl="https://www.oneusefulthing.org/"
+      />
+      <outline
+        text="Don't Worry About the Vase"
+        title="Don't Worry About the Vase" ai="1"
+        type="rss"
+        xmlUrl="https://thezvi.substack.com/feed"
+        htmlUrl="https://thezvi.substack.com/"
+      />
+      <outline
+        text="AI Snake Oil"
+        title="AI Snake Oil" ai="1"
+        type="rss"
+        xmlUrl="https://www.aisnakeoil.com/feed"
+        htmlUrl="https://www.aisnakeoil.com/"
+      />
+      <outline
+        text="Hamel Husain"
+        title="Hamel Husain" ai="1"
+        type="rss"
+        xmlUrl="https://hamel.dev/index.xml"
+        htmlUrl="https://hamel.dev/"
+      />
+      <outline
+        text="Philipp Schmid"
+        title="Philipp Schmid" ai="1"
+        type="rss"
+        xmlUrl="https://www.philschmid.de/rss"
+        htmlUrl="https://www.philschmid.de/"
+      />
+      <outline
+        text="Armin Ronacher"
+        title="Armin Ronacher"
+        type="rss"
+        xmlUrl="https://lucumr.pocoo.org/feed.atom"
+        htmlUrl="https://lucumr.pocoo.org/"
+      />
+    </outline>
+    <outline text="Papers and Research">
+      <outline
+        text="Hugging Face Daily Papers"
+        title="Hugging Face Daily Papers" ai="1"
+        type="rss"
+        xmlUrl="https://papers.takara.ai/api/feed"
+        htmlUrl="https://huggingface.co/papers"
+      />
+    </outline>
+    <outline text="Community">
+      <outline
+        text="Lobsters AI"
+        title="Lobsters AI" ai="1"
+        type="rss"
+        xmlUrl="https://lobste.rs/t/ai.rss"
+        htmlUrl="https://lobste.rs/t/ai"
+      />
+    </outline>
+    <outline text="AI Media">
+      <outline
+        text="MIT Technology Review AI"
+        title="MIT Technology Review AI" ai="1"
+        type="rss"
+        xmlUrl="https://www.technologyreview.com/topic/artificial-intelligence/feed"
+        htmlUrl="https://www.technologyreview.com/topic/artificial-intelligence/"
+      />
+      <outline
+        text="Ars Technica AI"
+        title="Ars Technica AI" ai="1"
+        type="rss"
+        xmlUrl="https://arstechnica.com/ai/feed/"
+        htmlUrl="https://arstechnica.com/ai/"
+      />
+    </outline>
+    <outline text="X follows">
+      <outline text="X follows" title="X follows" type="rss" xmlUrl="http://127.0.0.1:3200/data/follows.xml" htmlUrl="https://x.com/" />
+    </outline>
+    <outline text="Picks: Labs and research">
+      <outline text="METR" title="METR" ai="1" type="rss" xmlUrl="https://metr.org/feed.xml" htmlUrl="https://metr.org/blog/" />
+      <outline text="PyTorch Blog" title="PyTorch Blog" ai="1" type="rss" xmlUrl="https://pytorch.org/feed" htmlUrl="https://pytorch.org/" />
+      <outline text="Berkeley AI Research (BAIR) Blog" title="Berkeley AI Research (BAIR) Blog" ai="1" type="rss" xmlUrl="http://bair.berkeley.edu/blog/feed.xml" htmlUrl="http://bair.berkeley.edu/" />
+      <outline text="Amazon Science" title="Amazon Science" type="rss" xmlUrl="https://www.amazon.science/index.rss" htmlUrl="https://www.amazon.science/" />
+      <outline text="Cohere Blog" title="Cohere Blog" ai="1" type="rss" xmlUrl="https://raw.githubusercontent.com/alan-turing-institute/ai-rss-feeds/refs/heads/main/feeds/cohere-blog.xml" htmlUrl="https://cohere.com/blog" />
+      <outline text="AI Security Institute Blog" title="AI Security Institute Blog" ai="1" type="rss" xmlUrl="https://raw.githubusercontent.com/alan-turing-institute/ai-rss-feeds/refs/heads/main/feeds/aisi-blog.xml" htmlUrl="https://www.aisi.gov.uk/blog" />
+      <outline text="MIT News - Artificial intelligence" title="MIT News - Artificial intelligence" ai="1" type="rss" xmlUrl="http://news.mit.edu/rss/topic/artificial-intelligence2" htmlUrl="http://news.mit.edu/" />
+    </outline>
+    <outline text="Picks: Company engineering">
+      <outline text="GitHub Blog - AI &amp; ML" title="GitHub Blog - AI &amp; ML" ai="1" type="rss" xmlUrl="https://github.blog/ai-and-ml/feed/" htmlUrl="https://github.blog/ai-and-ml/" />
+      <outline text="Cloudflare Blog" title="Cloudflare Blog" type="rss" xmlUrl="https://blog.cloudflare.com/rss/" htmlUrl="https://blog.cloudflare.com/" />
+    </outline>
+    <outline text="Picks: Agents and tooling">
+      <outline text="Model Context Protocol Blog" title="Model Context Protocol Blog" ai="1" type="rss" xmlUrl="https://blog.modelcontextprotocol.io/index.xml" htmlUrl="https://blog.modelcontextprotocol.io/" />
+      <outline text="Stack Overflow Blog" title="Stack Overflow Blog" type="rss" xmlUrl="https://stackoverflow.blog/feed/" htmlUrl="https://stackoverflow.blog/" />
+    </outline>
+    <outline text="Picks: Independent analysts">
+      <outline text="Dwarkesh Podcast" title="Dwarkesh Podcast" type="rss" xmlUrl="https://www.dwarkeshpatel.com/feed" htmlUrl="https://dwarkesh.com" />
+      <outline text="Marcus on AI" title="Marcus on AI" ai="1" type="rss" xmlUrl="https://garymarcus.substack.com/feed" htmlUrl="https://garymarcus.substack.com" />
+      <outline text="Max Woolf (minimaxir)" title="Max Woolf (minimaxir)" type="rss" xmlUrl="https://minimaxir.com/index.xml" htmlUrl="https://minimaxir.com" />
+      <outline text="Giles Thomas" title="Giles Thomas" type="rss" xmlUrl="https://gilesthomas.com/feed/rss.xml" htmlUrl="https://gilesthomas.com" />
+      <outline text="Sean Goedecke" title="Sean Goedecke" type="rss" xmlUrl="https://www.seangoedecke.com/rss.xml" htmlUrl="https://seangoedecke.com" />
+      <outline text="Martin Alderson" title="Martin Alderson" type="rss" xmlUrl="https://martinalderson.com/feed.xml" htmlUrl="https://martinalderson.com" />
+      <outline text="Entropic Thoughts" title="Entropic Thoughts" type="rss" xmlUrl="https://entropicthoughts.com/feed.xml" htmlUrl="https://entropicthoughts.com" />
+      <outline text="Louis Bouchard" title="Louis Bouchard" ai="1" type="rss" xmlUrl="https://www.louisbouchard.ai/rss.xml" htmlUrl="https://www.louisbouchard.ai/" />
+      <outline text="Yoshua Bengio" title="Yoshua Bengio" ai="1" type="rss" xmlUrl="https://yoshuabengio.org/feed" htmlUrl="https://yoshuabengio.org/" />
+    </outline>
+    <outline text="Picks: Software engineering">
+      <outline text="The Pragmatic Engineer" title="The Pragmatic Engineer" type="rss" xmlUrl="https://blog.pragmaticengineer.com/rss/" htmlUrl="https://blog.pragmaticengineer.com/" />
+      <outline text="Martin Fowler" title="Martin Fowler" type="rss" xmlUrl="https://martinfowler.com/feed.atom" htmlUrl="https://martinfowler.com/" />
+      <outline text="InfoQ" title="InfoQ" type="rss" xmlUrl="https://feed.infoq.com" htmlUrl="https://www.infoq.com/" />
+    </outline>
+    <outline text="Picks: Newsletters and digests">
+      <outline text="Last Week in AI" title="Last Week in AI" ai="1" type="rss" xmlUrl="https://lastweekin.ai/feed" htmlUrl="https://lastweekin.ai/" />
+      <outline text="Turing Post" title="Turing Post" ai="1" type="rss" xmlUrl="https://rss.beehiiv.com/feeds/UJIoBuf5BX.xml" htmlUrl="https://www.turingpost.com/" />
+      <outline text="LLMs Research" title="LLMs Research" ai="1" type="rss" xmlUrl="https://llmsresearch.substack.com/feed" htmlUrl="https://www.llmsresearch.com/subscribe" />
+      <outline text="The AI Evaluation Substack" title="The AI Evaluation Substack" ai="1" type="rss" xmlUrl="https://aievaluation.substack.com/feed" htmlUrl="https://aievaluation.substack.com/" />
+    </outline>
+  </body>
+</opml>

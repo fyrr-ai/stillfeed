@@ -1,0 +1,90 @@
+import type { Article, Filters } from '../src/store';
+
+export type { Article };
+export type Feed = { items: Article[]; total: number; unseen: number; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
+export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean };
+export type Position = { id: string; offset: number };
+export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; collapsed?: string[] };
+/** After this long away, the feed is rebuilt so everything seen meanwhile disappears. */
+export const FRESH_AFTER = 15 * 60 * 1000;
+export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
+export type Source = { id: string; name: string; enabled: number; articles: number; error?: string };
+export type Status = { generatedAt: string; revision: number; refresh: string; importError: string | null; collection: { failed?: number | unknown[]; rss?: number }; preparation?: Record<string, number> };
+export type HotItem = Article & { reason: string };
+export type Reading = { title: string; author: string; html: string; url: string };
+
+// Seen updates leave the feed by default; they disappear on the next load, never under your finger.
+export const defaults: Preferences = { view: 'feed', scope: 'ai', kind: 'all', q: '', hideSeen: true };
+export const PAGE_SIZE = 30;
+
+export async function api<T>(path: string, value?: unknown): Promise<T> {
+  const response = await fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Radar': '1' }, body: JSON.stringify(value) } : {}) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Request failed');
+  return data as T;
+}
+
+/** Polls an endpoint that answers {state:'pending'} while the background worker prepares the result. */
+export async function prepared<T>(path: string, cancelled: () => boolean, body?: unknown): Promise<T> {
+  const started = Date.now();
+  let result = await api<T | { state: 'pending' }>(path, body);
+  while (result && typeof result === 'object' && 'state' in result && result.state === 'pending') {
+    if (cancelled()) throw new Error('Reading cancelled');
+    if (Date.now() - started > 180000) throw new Error('Still preparing this article. Please try again shortly.');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    result = await api<T | { state: 'pending' }>(path);
+  }
+  return result as T;
+}
+
+export const link = (value: unknown) => { try { const u = new URL(String(value)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
+export const relative = (ms: number) => { const n = Math.max(0, (Date.now() - ms) / 1000); return n < 60 ? 'now' : n < 3600 ? `${Math.floor(n / 60)}m` : n < 86400 ? `${Math.floor(n / 3600)}h` : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(ms); };
+export const count = (n: unknown) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(n) || 0);
+/** Feed titles arrive HTML-escaped; decode entities to plain text, never to markup. */
+export function headline(value: string) { const text = document.createElement('textarea'); text.innerHTML = value.replace(/</g, '&lt;').replace(/>/g, '&gt;'); return text.value; }
+
+export function loadPreferences(): Preferences {
+  try {
+    const saved = JSON.parse(localStorage.getItem('radar-v2-preferences') || 'null');
+    if (saved) return { view: saved.view === 'saved' ? 'saved' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true };
+  } catch {}
+  return { ...defaults };
+}
+export function storePreferences(preferences: Preferences) { localStorage.setItem('radar-v2-preferences', JSON.stringify({ ...preferences, autoSeen: true })); }
+export function loadSession(key: string, preferences?: Preferences, maxAge = Infinity): Session | null {
+  try {
+    const session = JSON.parse(sessionStorage.getItem(key) || 'null') as Session | null;
+    if (!session || !session.preferences || typeof session.batch !== 'string' || !Number.isInteger(session.pages) || session.pages < 1) return null;
+    session.preferences.view ??= 'feed';
+    if (preferences && JSON.stringify(session.preferences) !== JSON.stringify(preferences)) return null;
+    if (Date.now() - (session.at ?? 0) > maxAge) return null;
+    return session;
+  } catch { return null; }
+}
+export function loadOutbox(): Record<string, boolean> {
+  try {
+    const saved = JSON.parse(localStorage.getItem('radar-v2-outbox') || '{}');
+    if (saved && typeof saved === 'object') return Object.fromEntries(Object.entries(saved).filter(([id, on]) => /^[a-f0-9]{32}$/.test(id) && typeof on === 'boolean')) as Record<string, boolean>;
+  } catch {}
+  return {};
+}
+
+export const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+/** Past the 90 px commit point a drag resists like a rubber band. */
+export const COMMIT = 90;
+export const resist = (distance: number) => distance <= COMMIT ? distance : COMMIT + (distance - COMMIT) * .3;
+/** Gestures never start on controls, near the screen edges (system back) or while text is selected. */
+export function gestureAllowed(target: EventTarget | null, x: number) {
+  if (window.getSelection()?.toString() || x < 20 || x > innerWidth - 20 || !(target instanceof Element)) return false;
+  if (document.querySelector('[data-slot$="dialog-content"][data-open], [data-slot="drawer-content"][data-open], dialog[open]')) return false;
+  return !target.closest('button,input,textarea,select,summary,[role=switch],[role=combobox],video,audio,iframe,pre,table,[contenteditable]');
+}
+
+/** Videos and Reddit posts are articles with their own badge and reader extras. */
+export function youtubeId(url: string) { try { const u = new URL(url); if (u.hostname === 'youtu.be') return u.pathname.slice(1) || null; if (/(^|\.)youtube\.com$/.test(u.hostname)) return u.searchParams.get('v') || /^\/(shorts|live)\/([\w-]{11})/.exec(u.pathname)?.[2] || null; } catch {} return null; }
+export const isReddit = (url: string) => { try { return /(^|\.)reddit\.com$/.test(new URL(url).hostname); } catch { return false; } };
+export function articleBadge(url: string): { letter: string; label: string; kind: string } {
+  if (youtubeId(url)) return { letter: 'V', label: 'Video', kind: 'video' };
+  if (isReddit(url)) return { letter: 'R', label: 'Reddit', kind: 'reddit' };
+  return { letter: 'A', label: 'Article', kind: 'article' };
+}
