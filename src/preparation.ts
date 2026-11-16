@@ -3,6 +3,7 @@ import type {Store} from './store';
 import type {Reader} from './reader';
 import type {Summaries,SummaryInput} from './summary';
 import {randomUUID} from 'node:crypto';
+import {Unavailable} from './llm';
 export type Job={article_id:string;state:'queued'|'working'|'done'|'failed';attempts:number;error:string|null;token:string|null};
 export class Preparation {
  constructor(readonly store:Store){store.db.exec(`CREATE TABLE IF NOT EXISTS reader_jobs(article_id TEXT PRIMARY KEY REFERENCES articles(id),state TEXT NOT NULL,priority INTEGER NOT NULL DEFAULT 0,attempts INTEGER NOT NULL DEFAULT 0,ready_at INTEGER NOT NULL DEFAULT 0,lease_until INTEGER NOT NULL DEFAULT 0,token TEXT,error TEXT,updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS reader_jobs_pending ON reader_jobs(state,ready_at,priority);`);}
@@ -34,11 +35,14 @@ export class Preparation {
 export async function prepareBatch(queue:Preparation,reader:Pick<Reader,'get'>,summaries:Summaries,generate:(items:SummaryInput[])=>Promise<Map<string,string[]>>,token=randomUUID()){
  const jobs=queue.claim(6,token);if(!jobs.length)return 0;
  const inputs:SummaryInput[]=[];
- // Three independent downloads at once; one batched Luna call afterwards.
+ // Three independent downloads at once; one batched model call afterwards.
  let cursor=0;
  await Promise.all(Array.from({length:3},async()=>{while(cursor<jobs.length){const job=jobs[cursor++]!;try{const reading=await reader.get(job.article_id);if(summaries.cached(job.article_id,reading))queue.done(job);else inputs.push({id:job.article_id,reading});}catch(error){queue.failed(job,error);}}}));
  const backoff=Number(queue.store.meta('summaryBackoffUntil')||0);
  if(inputs.length&&backoff>Date.now()){for(const input of inputs)queue.defer(jobs.find(j=>j.article_id===input.id)!,backoff);return jobs.length;}
- if(inputs.length)try{const results=await generate(inputs);for(const input of inputs){const points=results.get(input.id);if(!points)throw new Error('Missing article summary');summaries.save(input.id,input.reading,points);queue.done(jobs.find(j=>j.article_id===input.id)!);}}catch(error){queue.store.setMeta('summaryBackoffUntil',String(Date.now()+300000));for(const input of inputs)queue.failed(jobs.find(j=>j.article_id===input.id)!,error);}
+ if(inputs.length)try{const results=await generate(inputs);for(const input of inputs){const points=results.get(input.id);if(!points)throw new Error('Missing article summary');summaries.save(input.id,input.reading,points);queue.done(jobs.find(j=>j.article_id===input.id)!);}}catch(error){
+  // Without an AI provider the reading is still prepared; summaries simply stay off.
+  if(error instanceof Unavailable){for(const input of inputs)queue.done(jobs.find(j=>j.article_id===input.id)!);return jobs.length;}
+  queue.store.setMeta('summaryBackoffUntil',String(Date.now()+300000));for(const input of inputs)queue.failed(jobs.find(j=>j.article_id===input.id)!,error);}
  return jobs.length;
 }

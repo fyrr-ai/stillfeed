@@ -4,6 +4,7 @@ import sanitize from 'sanitize-html';
 import {detect} from 'chardet';
 import {download} from './media';
 import type {Store} from './store';
+import {transcript as captions} from './youtube';
 export type Reading={title:string;author:string;html:string;text:string;url:string;fetchedAt:number};
 const sanitizeOptions:sanitize.IOptions={allowedTags:[...sanitize.defaults.allowedTags,'img','figure','figcaption'],allowedAttributes:{a:['href','title','target','rel'],img:['src','alt','width','height','loading','referrerpolicy'], '*':['lang','dir']},allowedSchemes:['https','http'],transformTags:{a:(_tag,attrs)=>({tagName:'a',attribs:{...attrs,target:'_blank',rel:'noopener noreferrer'}}),img:(_tag,attrs)=>({tagName:'img',attribs:{...attrs,loading:'lazy',referrerpolicy:'no-referrer'}})}};
 /** Articles and X posts that carry an X Article can be read in Radar. */
@@ -42,7 +43,7 @@ export function extract(html:string,url:string):Omit<Reading,'fetchedAt'> {
 }
 export class Reader {
   private jobs=new Map<string,Promise<Reading>>();
-  constructor(private store:Store,private tools?:{python:string;app:string}){store.db.exec('CREATE TABLE IF NOT EXISTS article_content(article_id TEXT PRIMARY KEY REFERENCES articles(id),payload TEXT NOT NULL,fetched_at INTEGER NOT NULL)');}
+  constructor(private store:Store){store.db.exec('CREATE TABLE IF NOT EXISTS article_content(article_id TEXT PRIMARY KEY REFERENCES articles(id),payload TEXT NOT NULL,fetched_at INTEGER NOT NULL)');}
   cached(id:string):Reading|null{const row=this.store.db.query('SELECT payload FROM article_content WHERE article_id=?').get(id) as {payload:string}|null;return row?JSON.parse(row.payload):null;}
   async get(id:string):Promise<Reading> {
     const article=this.store.article(id);if(!readable(article))throw new Error('Unknown article');
@@ -69,13 +70,10 @@ export class Reader {
     this.jobs.set(id,job);try{return await job;}finally{this.jobs.delete(id);}
   }
   private async transcript(video:string,title:string,author:string,url:string){
-    if(!this.tools)throw new Error('Transcripts need the reader worker.');
-    const child=Bun.spawn([this.tools.python,`${this.tools.app}/scripts/transcript.py`,video],{stdout:'pipe',stderr:'pipe'});
-    const [output,code]=await Promise.all([new Response(child.stdout).text(),child.exited]);
-    if(code!==0)throw new Error('This video has no transcript. Open it on YouTube instead.');
-    const segments=JSON.parse(output).segments;
-    if(!Array.isArray(segments))throw new Error('Invalid transcript');
-    return transcriptReading(video,title,author,url,segments.filter((s:unknown):s is [number,string]=>Array.isArray(s)&&typeof s[0]==='number'&&typeof s[1]==='string'));
+    let segments:[number,string][]|null;
+    try{segments=await captions(video);}catch{throw new Error('Could not load the transcript. Open it on YouTube instead.');}
+    if(!segments?.length)throw new Error('This video has no transcript. Open it on YouTube instead.');
+    return transcriptReading(video,title,author,url,segments);
   }
 }
 

@@ -47,6 +47,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,created INTEGER NOT NULL,revision INTEGER NOT NULL,filters TEXT NOT NULL,total INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batch_items(batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,article_id TEXT NOT NULL REFERENCES articles(id),PRIMARY KEY(batch_id,ordinal));
       CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(article_id UNINDEXED,title,source,body,tokenize='unicode61');
+      CREATE TABLE IF NOT EXISTS x_accounts(handle TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);
+      CREATE TABLE IF NOT EXISTS seeded(key TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS feeds(id TEXT PRIMARY KEY,url TEXT NOT NULL UNIQUE,title TEXT NOT NULL,source_id TEXT,ai INTEGER NOT NULL DEFAULT 0,etag TEXT,last_modified TEXT,checked_at INTEGER,error TEXT);
       CREATE TABLE IF NOT EXISTS feed_entries(feed_id TEXT NOT NULL REFERENCES feeds(id),guid TEXT NOT NULL,article_id TEXT NOT NULL REFERENCES articles(id),PRIMARY KEY(feed_id,guid));
       CREATE TABLE IF NOT EXISTS model_decisions(id TEXT PRIMARY KEY,keep INTEGER NOT NULL,at REAL NOT NULL);
@@ -66,60 +68,7 @@ export class Store {
     const retention=settings.retentionDays??this.settings().retentionDays;if(!Number.isInteger(retention)||retention<7||retention>365||retention*24<settings.windowHours)throw new Error('History must cover your feed window (7–365 days).');
     this.db.transaction(()=> { for (const [key,value] of Object.entries({...settings,nightPause:settings.nightPause??this.settings().nightPause,retentionDays:retention})) this.db.query('INSERT OR REPLACE INTO settings VALUES(?,?)').run(key,JSON.stringify(value)); })();
   }
-  async import(dataDir: string) {
-    const read=async(name:string, optional=false):Promise<RecordData> => {
-      const file=Bun.file(join(dataDir,name));
-      if (optional && !await file.exists()) return {};
-      return object(await file.json());
-    };
-    const [raw,selected,archive,posts,status]=await Promise.all([read('latest-24h-all-raw.json'),read('latest-24h.json'),read('archive.json',true),read('follows-posts.json',true),read('source-status.json',true)]);
-    if (!Array.isArray(raw.items_all_raw) || !Array.isArray(selected.items) || !raw.generated_at || selected.generated_at!==raw.generated_at) throw new Error('Collector snapshots are incomplete or from different updates');
-    const generated=str(raw.generated_at), now=date(generated,Date.now());
-    if (this.meta('generatedAt')===generated) return {imported:false,revision:Number(this.meta('revision')||0)};
-    const revision=Number(this.meta('revision')||0)+1;
-    const current=array(raw.items_all_raw);
-    const aiURLs=new Set(array(selected.items).map(i=>{try{return canonical(i.url);}catch{return '';}}));
-    const records=new Map<string,RecordData>();
-    for (const r of [...array(archive.items),...current]) {
-      try { const url=canonical(r.url); records.set(url,{...records.get(url),...r,ai_is_related:Boolean(records.get(url)?.ai_is_related || r.ai_is_related || aiURLs.has(url))}); } catch { /* invalid external record */ }
-    }
-    const sourceSQL=this.db.query('INSERT INTO sources(id,name) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name');
-    const articleSQL=this.db.query(`INSERT INTO articles(id,url,title,source,host,kind,sort_at,ai,tweet,created_revision,last_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,source=excluded.source,ai=MAX(articles.ai,excluded.ai),tweet=COALESCE(excluded.tweet,articles.tweet),last_revision=excluded.last_revision`);
-    this.db.transaction(()=> {
-      for (const [url,r] of records) {
-        const id=hash(url), host=new URL(url).hostname;
-        const source=str(r.source,str(r.site_name,host));
-        const sourceId=str(r.source_id,hash(str(r.site_id)+'::'+source));
-        const isX=/^https?:\/\/(?:www\.)?x\.com\/[^/]+\/status\/(\d+)/.exec(url);
-        const tweet=isX ? object(posts[isX[1]!]) : {};
-        const title=str(r.title_original,str(r.title_en,str(r.title,'Untitled update')));
-        const published=date(r.site_id==='producthunt' ? r.first_seen_at : r.published_at,date(r.first_seen_at,now));
-        sourceSQL.run(sourceId,source);
-        articleSQL.run(id,url,title,source,host,isX?'x':'article',published,Number(Boolean(r.ai_is_related||aiURLs.has(url))),Object.keys(tweet).length?JSON.stringify(tweet):null,revision,revision);
-        this.db.query('INSERT OR IGNORE INTO article_sources VALUES(?,?)').run(id,sourceId);
-      }
-      this.db.exec('DELETE FROM search; INSERT INTO search(article_id,title,source,body) SELECT id,title,source,COALESCE(json_extract(tweet,\'$.text\'),\'\') FROM articles;');
-      if (!this.meta('seenMigrated')) {
-        const marks=join(this.directory,'marks.db');
-        if (existsSync(marks)) {
-          const legacy=new Database(marks,{readonly:true});
-          const tables=legacy.query("SELECT name FROM sqlite_master WHERE type='table'").all() as {name:string}[];
-          const table=tables.some(t=>t.name==='seen')?'seen':tables.some(t=>t.name==='marks')?'marks':null;
-          if(table) for(const row of legacy.query(`SELECT url,at FROM ${table}`).all() as {url:string;at:number}[]) {
-            try {this.db.query('INSERT OR IGNORE INTO seen SELECT id,? FROM articles WHERE id=?').run(Math.round(row.at*1000),hash(canonical(row.url)));} catch { /* invalid legacy URL */ }
-          }
-          legacy.close();
-        }
-        this.setMeta('seenMigrated','1');
-      }
-      this.setMeta('revision',String(revision)); this.setMeta('generatedAt',generated);
-      this.setMeta('collectorWindowHours',String(raw.window_hours || 72));
-      this.setMeta('collectionStatus',JSON.stringify({ok:status.successful_sites,failed:status.failed_sites,rss:object(status.rss_opml).ok_feeds}));
-      this.setMeta('rawRecords',String(current.length));
-      this.setMeta('legacyImported','1');
-    })();
-    return {imported:true,revision,articles:records.size,currentUnique:new Set(current.map(r=>canonical(r.url))).size};
-  }
+
   ingest(records:RecordData[], generatedAt:string, results:{id:string;etag?:string|null;modified?:string|null;error?:string|null}[]=[]) {
     const revision=Number(this.meta('revision')||0)+1, now=date(generatedAt,Date.now());
     this.db.transaction(()=>{

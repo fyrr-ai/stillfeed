@@ -23,8 +23,6 @@ const env = (key: string, fallback: string) => process.env[key] || fallback;
 export const config = {
   home,
   state: env('RADAR_STATE_DIR', join(home, 'state')),
-  data: env('RADAR_DATA_DIR', join(home, 'data')),
-  python: env('RADAR_PYTHON', join(home, 'venv/bin/python')),
   hostname: env('RADAR_HOSTNAME', '127.0.0.1'),
   port: Number(env('RADAR_PORT', '3200')),
   /** Plain-language description of what the reader cares about; Hot, suggestions and triage read it. */

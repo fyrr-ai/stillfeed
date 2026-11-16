@@ -9,20 +9,19 @@ import {Hot} from './hot';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { app, config } from './config';
+import { describe, language } from './llm';
+import * as sources from './sources';
 const args=Bun.argv.slice(2);
 const option=(key:string,fallback:string)=>args.includes(key)?args[args.indexOf(key)+1]!:fallback;
-const data=option('--data-dir',config.data);
 const directory=option('--state-dir',config.state);
 const store=new Store(directory);
 if(args.includes('--is-empty')){console.log(Number((store.db.query('SELECT COUNT(*) AS n FROM articles').get() as {n:number}).n)===0?'yes':'no');store.close();process.exit(0);}
 if(args.includes('--window-hours')){console.log(store.settings().windowHours);store.close();process.exit(0);}
-if((args.includes('--import')||!store.meta('legacyImported'))&&await Bun.file(join(data,'latest-24h-all-raw.json')).exists())await store.import(data);
 if(!store.meta('generatedAt')){store.setMeta('generatedAt',new Date().toISOString());store.setMeta('revision','0');}
-await seed(store,app,data);
-if(args.includes('--collect')){try{console.log(JSON.stringify(await collect(store,app,data,{noX:args.includes('--no-x'),noWeb:args.includes('--no-web'),noModel:args.includes('--no-model')})));}finally{store.close();}process.exit(0);}
-if(args.includes('--hot')){try{console.log(JSON.stringify(await refreshHot(store,app,config.python,true)));}finally{store.close();}process.exit(0);}
-if(args.includes('--suggest')){try{console.log(JSON.stringify(await refreshSuggestions(store,app,config.python,true)));}finally{store.close();}process.exit(0);}
-if(args.includes('--import')) {console.log(JSON.stringify({articles:store.db.query('SELECT COUNT(*) AS n FROM articles').get(),revision:store.meta('revision')}));store.close();process.exit(0);}
+await seed(store,app);
+if(args.includes('--collect')){try{console.log(JSON.stringify(await collect(store,app,{noX:args.includes('--no-x'),noWeb:args.includes('--no-web'),noModel:args.includes('--no-model')})));}finally{store.close();}process.exit(0);}
+if(args.includes('--hot')){try{console.log(JSON.stringify(await refreshHot(store,true)));}finally{store.close();}process.exit(0);}
+if(args.includes('--suggest')){try{console.log(JSON.stringify(await refreshSuggestions(store,true)));}finally{store.close();}process.exit(0);}
 const media=new Media(directory);
 const reader=new Reader(store);
 const summaries=new Summaries(store);
@@ -38,7 +37,7 @@ const integer=(value:string|null,fallback:number,min:number,max:number)=>{
 let collecting:Subprocess|null=null,lastCollection:'idle'|'failed'='idle';
 function startCollection(){
   if(collecting)return;
-  const command=process.env.RADAR_COLLECT_COMMAND?['sh','-c',process.env.RADAR_COLLECT_COMMAND]:[process.execPath,join(app,'src/server.ts'),'--state-dir',directory,'--data-dir',data,'--collect'];
+  const command=process.env.RADAR_COLLECT_COMMAND?['sh','-c',process.env.RADAR_COLLECT_COMMAND]:[process.execPath,join(app,'src/server.ts'),'--state-dir',directory,'--collect'];
   collecting=Bun.spawn(command,{stdout:'inherit',stderr:'inherit',env:process.env});
   void collecting.exited.then(code=>{lastCollection=code===0?'idle':'failed';collecting=null;});
 }
@@ -62,6 +61,12 @@ function schedule(){
   const {refreshEvery,nightPause}=store.settings(),at=nextRefresh(refreshEvery,nightPause);
   timer=setTimeout(()=>{startCollection();schedule();},Math.max(1000,at.getTime()-Date.now()));
 }
+/** Enabled sources whose last fetch failed: feeds by their error, web sources from the last collection. */
+function failedSources(){
+  const feeds=store.db.query('SELECT s.id,s.name,f.error FROM feeds f JOIN sources s ON s.id=f.source_id WHERE s.enabled=1 AND f.error IS NOT NULL').all() as {id:string;name:string;error:string}[];
+  const webs=(JSON.parse(store.meta('collectionStatus')||'{}').webs??[]) as {site_id:string;site_name?:string;ok:boolean;error?:string|null}[];
+  return [...feeds,...webs.filter(w=>!w.ok).map(w=>({id:w.site_id,name:w.site_name||w.site_id,error:w.error||'Failed'}))];
+}
 function pendingArticle(id:string,retry=false){
   preparation.enqueue(id,1000,retry);
   const job=preparation.job(id)!;
@@ -71,6 +76,7 @@ function articleSummary(id:string,retry=false){
   const article=store.article(id);if(!readable(article))return json({error:'Unknown article'},404);
   const reading=reader.cached(id),cached=reading?summaries.cached(id,reading):null;
   if(cached)return json(cached);
+  if(!describe())return json({error:'AI summaries are off. Set an AI provider to turn them on.',off:true},409);
   if(Number(store.meta('summaryBackoffUntil')||0)>Date.now()){preparation.enqueue(id,1000,retry);return json({error:'Summary service is temporarily unavailable. The article text remains available.'},503);}
   return pendingArticle(id,retry);
 }
@@ -81,11 +87,14 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
     try {
       if(request.method==='GET') {
         if(path==='/health')return json({ok:true,version:2});
-        if(path==='/api/status')return json({generatedAt:store.meta('generatedAt'),revision:Number(store.meta('revision')),collection:JSON.parse(store.meta('collectionStatus')||'{}'),importError:null,refresh:await refreshState(),preparation:preparation.stats(),articles:store.db.query('SELECT COUNT(*) AS total FROM articles').get()});
+        if(path==='/api/status')return json({generatedAt:store.meta('generatedAt'),revision:Number(store.meta('revision')),collection:JSON.parse(store.meta('collectionStatus')||'{}'),importError:null,refresh:await refreshState(),preparation:preparation.stats(),articles:store.db.query('SELECT COUNT(*) AS total FROM articles').get(),failedSources:failedSources()});
         if(path==='/api/settings')return json(store.settings());
         if(path==='/api/hot')return json({items:hot.list()});
         if(path==='/api/suggestions')return json({items:suggestions.list()});
-        if(path==='/api/sources')return json(store.sources());
+        if(path==='/api/sources')return json(sources.list(store));
+        if(path==='/api/x-accounts')return json(sources.accounts(store));
+        // Status only, never secrets.
+        if(path==='/api/config')return json({language:language(),ai:describe()??{provider:null,model:null},x:{configured:Boolean(process.env.SOCIALDATA_API_KEY)}});
         if(path==='/api/feed') {
           const p=url.searchParams,scope=p.get('scope')||'ai',kind=p.get('kind')||'all';
           if(!['ai','all'].includes(scope)||!['all','article','x'].includes(kind))throw new Error('Unknown feed filter');
@@ -136,6 +145,15 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
           if(!Number.isInteger(next.windowHours)||next.windowHours<24||next.windowHours>2160||!REFRESH_EVERY.includes(next.refreshEvery))throw new Error('Invalid settings');
           store.configure(next);if(next.refreshEvery!==previous.refreshEvery||next.nightPause!==previous.nightPause)schedule();return json(store.settings());
         }
+        if(path==='/api/sources/add'){
+          if(typeof value.url!=='string'||value.url.length>2000)throw new Error('Invalid source address');
+          return json(await sources.addSource(store,value.url,typeof value.name==='string'?value.name:undefined));
+        }
+        if(path==='/api/sources/remove'){
+          if(typeof value.id!=='string')throw new Error('Invalid source');
+          sources.removeSource(store,value.id);return json({ok:true});
+        }
+        if(path==='/api/x-accounts')return json(sources.setAccount(store,value.handle,value.enabled));
         if(path==='/api/sources'){
           if(typeof value.id!=='string'||typeof value.enabled!=='boolean')throw new Error('Invalid source');
           store.setSource(value.id,value.enabled);return json({ok:true});

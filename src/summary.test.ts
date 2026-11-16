@@ -1,6 +1,7 @@
 import {test,expect} from 'bun:test';
 import {Store} from './store';
-import {Summaries,parseSummary,SUMMARY_MODEL} from './summary';
+import {Summaries,parseSummary} from './summary';
+import {Unavailable} from './llm';
 import {Preparation,prepareBatch} from './preparation';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
@@ -10,7 +11,7 @@ const points=['Nový model.','Důležité změny.','Otevřený zdroj.'];
 function fixture(count=1){const directory=mkdtempSync(join(tmpdir(),'radar-preparation-')),store=new Store(directory);store.ingest(Array.from({length:count},(_,n)=>({url:`https://example.com/${n}`,title:`Example ${n}`,source:'Example',published_at:new Date(Date.now()-n*1000).toISOString(),ai_is_related:true})),new Date(Date.now()+1000).toISOString());return {store,done(){store.close();rmSync(directory,{recursive:true,force:true});}};}
 test('summary cache follows article content and records the actual model',()=>{
  const f=fixture();try{const cache=new Summaries(f.store),id=(f.store.db.query('SELECT id FROM articles').get() as {id:string}).id;
- expect(cache.cached(id,reading)).toBeNull();cache.save(id,reading,points);expect(cache.cached(id,reading)?.points).toEqual(points);expect(cache.cached(id,reading)?.model).toBe(SUMMARY_MODEL);expect(cache.cached(id,{...reading,text:'Changed'})).toBeNull();expect(()=>cache.save(id,reading,['Invalid'])).toThrow();expect(cache.cached(id,reading)?.points).toEqual(points);expect(()=>parseSummary('not JSON')).toThrow();
+ expect(cache.cached(id,reading)).toBeNull();cache.save(id,reading,points,'test-model');expect(cache.cached(id,reading)?.points).toEqual(points);expect(cache.cached(id,reading)?.model).toBe('test-model');expect(cache.cached(id,{...reading,text:'Changed'})).toBeNull();expect(()=>cache.save(id,reading,['Invalid'])).toThrow();expect(cache.cached(id,reading)?.points).toEqual(points);expect(()=>parseSummary('not JSON')).toThrow();
  }finally{f.done();}
 });
 test('durable queue prioritizes opened articles, leases jobs once and retains retry state',()=>{
@@ -27,5 +28,17 @@ test('background preparation batches summaries and never regenerates an existing
 });
 test('failed downloads and malformed model output stay retryable without a fake ready state',async()=>{
  const f=fixture(2);try{const queue=new Preparation(f.store),cache=new Summaries(f.store);queue.enqueueCurrent();let n=0;await prepareBatch(queue,{async get(){if(!n++)throw new Error('HTTP 403');return reading;}},cache,async()=>new Map());expect(queue.stats().failed).toBe(2);expect(queue.stats().done).toBeUndefined();expect((f.store.db.query('SELECT COUNT(*) AS n FROM article_summaries').get() as {n:number}).n).toBe(0);
+ }finally{f.done();}
+});
+test('a summary belongs to the language it was written in',()=>{
+ const f=fixture(),previous=process.env.RADAR_LANGUAGE;try{const cache=new Summaries(f.store),id=(f.store.db.query('SELECT id FROM articles').get() as {id:string}).id;
+ process.env.RADAR_LANGUAGE='Czech';cache.save(id,reading,points,'m');expect(cache.cached(id,reading)?.language).toBe('Czech');
+ process.env.RADAR_LANGUAGE='German';expect(cache.cached(id,reading)).toBeNull();
+ }finally{if(previous===undefined)delete process.env.RADAR_LANGUAGE;else process.env.RADAR_LANGUAGE=previous;f.done();}
+});
+test('without an AI provider articles are still prepared, just without summaries',async()=>{
+ const f=fixture(2);try{const queue=new Preparation(f.store),cache=new Summaries(f.store);queue.enqueueCurrent();
+ expect(await prepareBatch(queue,{async get(){return reading;}},cache,async()=>{throw new Unavailable('off');})).toBe(2);
+ expect(queue.stats().done).toBe(2);expect(f.store.meta('summaryBackoffUntil')).toBeFalsy();
  }finally{f.done();}
 });

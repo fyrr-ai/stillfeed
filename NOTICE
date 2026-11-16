@@ -1,0 +1,12 @@
+Radar
+Copyright (c) 2026 Radek Tomšej. Released under the MIT License (see LICENSE).
+
+The web collectors (src/web.ts) and the keyword relevance filter (src/relevance.ts) are TypeScript ports of
+LearnPrompt/ai-news-radar, Copyright (c) 2026 LearnPrompt, MIT License.
+
+Bundled third-party files:
+- Geist and Geist Mono fonts (assets/fonts), Copyright (c) 2023 Vercel, SIL Open Font License 1.1 (assets/fonts/OFL.txt).
+- assets/main.js bundles React and React DOM (MIT, assets/react-LICENSE), Motion (MIT, assets/motion-LICENSE)
+  and UI SDK (Apache License 2.0, assets/ui-sdk-LICENSE).
+
+Runtime dependencies are listed in package.json; each keeps its own license (MIT, ISC or Apache 2.0).

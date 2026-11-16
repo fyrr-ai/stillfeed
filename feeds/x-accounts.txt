@@ -1,0 +1,35 @@
+# Default X accounts (one handle per line, "#" starts a comment). Added once; switch them off in the sidebar.
+# Your own list goes to ~/.local/share/radar/x-accounts.txt.
+
+# Labs and model makers
+OpenAI
+AnthropicAI
+GoogleDeepMind
+GeminiApp
+AIatMeta
+MistralAI
+deepseek_ai
+Alibaba_Qwen
+huggingface
+
+# People building and explaining AI
+karpathy
+simonw
+swyx
+natolambert
+emollick
+OfficialLoganK
+_akhaliq
+AndrewYNg
+hwchase17
+jerryjliu0
+theo
+GergelyOrosz
+
+# Data engineering
+databricks
+Snowflake
+dbt_labs
+motherduck
+ClickHouseDB
+dagster

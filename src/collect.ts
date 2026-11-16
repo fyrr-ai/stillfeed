@@ -3,44 +3,34 @@ import {Preparation} from './preparation';
 import {Hot,modelPicker,readInterests} from './hot';
 import {Suggestions,modelRater} from './suggest';
 import {Store,hash,canonical,type RecordData} from './store';
-import {subscriptions,parseFeed} from './feeds';
+import {parseFeed} from './feeds';
+import {insertFeed,seedAccounts,seedOnce,seedOpml} from './sources';
 import {download} from './media';
 import {join} from 'node:path';
-import {existsSync} from 'node:fs';
+import {collectWeb,type WebStatus} from './web';
+import {addAiRelevance,hasDataSignal} from './relevance';
+import {toRecord} from './tweets';
+import {triage} from './triage';
+import {channelVideos} from './youtube';
 type Feed={id:string;url:string;title:string;source_id:string;ai:number;etag:string|null;last_modified:string|null};
-export async function seed(store:Store,app:string,data:string){
-  if(!store.meta('feedsSeeded')){
-    for(const item of subscriptions(await Bun.file(join(app,'feeds/follow.opml')).text())){
-      const existing=store.db.query('SELECT id FROM sources WHERE name=? COLLATE NOCASE LIMIT 1').get(item.title) as {id:string}|null;
-      const sourceId=existing?.id||hash('opmlrss::'+item.title);
-      store.db.query('INSERT OR IGNORE INTO sources(id,name) VALUES(?,?)').run(sourceId,item.title);
-      store.db.query('INSERT OR IGNORE INTO feeds(id,url,title,source_id,ai) VALUES(?,?,?,?,?)').run(hash(item.url),item.url,item.title,sourceId,Number(item.ai));
-    }
-    store.setMeta('feedsSeeded','1');
-  }
-  // YouTube channels and subreddits: added once each, later enabling or disabling in Sources is kept.
-  const channels=Bun.file(join(app,'feeds/channels.json'));
+/** Default feeds and channels ship with Radar; the reader's own feeds.opml and x-accounts.txt add to them.
+ *  Each entry is added once, so removing or switching off a source in the sidebar sticks. */
+export async function seed(store:Store,app:string){
+  const text=async(path:string)=>{const file=Bun.file(path);return await file.exists()?file.text():'';};
+  seedOpml(store,await text(join(app,'feeds/follow.opml')));
   // "ai": false sends a general channel through the relevance filter instead of trusting every video.
-  if(await channels.exists())for(const item of await channels.json() as {title:string;url:string;ai?:boolean}[]){
-    const sourceId=hash('channel::'+item.url);
-    store.db.query('INSERT OR IGNORE INTO sources(id,name) VALUES(?,?)').run(sourceId,item.title);
-    store.db.query('INSERT OR IGNORE INTO feeds(id,url,title,source_id,ai) VALUES(?,?,?,?,?)').run(hash(item.url),item.url,item.title,sourceId,item.ai===false?0:1);
-  }
-  store.db.exec('CREATE TABLE IF NOT EXISTS x_accounts(handle TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1)');
-  if(!store.meta('accountsSeeded')){
-    const file=Bun.file(join(data,'../x-following.json'));
-    if(await file.exists()){const rows=await file.json();if(Array.isArray(rows))for(const row of rows)if(typeof row.handle==='string'&&/^@?\w{1,15}$/.test(row.handle))store.db.query('INSERT OR IGNORE INTO x_accounts(handle,name) VALUES(?,?)').run(row.handle.replace(/^@/,''),String(row.name||row.handle));}
-    const legacy=Bun.file(join(data,'follows-state.json'));if(await legacy.exists()){const state=await legacy.json();if(typeof state.last_run==='number')store.setMeta('xLastFetch',String(state.last_run));}
-    store.setMeta('accountsSeeded','1');
-  }
+  const channels=await text(join(app,'feeds/channels.json'));
+  for(const item of channels?JSON.parse(channels) as {title:string;url:string;ai?:boolean}[]:[])seedOnce(store,'feed::'+canonical(item.url),()=>insertFeed(store,canonical(item.url),item.title,item.ai!==false,'channel::'+item.url));
+  seedOpml(store,await text(config.feeds),false);
+  seedAccounts(store,await text(join(app,'feeds/x-accounts.txt')));
+  seedAccounts(store,await text(config.xAccounts));
 }
-const REDDIT_GAP=12000;
 async function parallel<T,R>(items:T[],workers:number,work:(item:T)=>Promise<R>){
   const results:R[]=new Array(items.length);let next=0;
   await Promise.all(Array.from({length:Math.min(workers,items.length)},async()=>{while(next<items.length){const at=next++;results[at]=await work(items[at]!);}}));return results;
 }
-export async function collect(store:Store,app:string,data:string,options:{noX?:boolean;noWeb?:boolean;noModel?:boolean}={}){
-  await seed(store,app,data);
+export async function collect(store:Store,app:string,options:{noX?:boolean;noWeb?:boolean;noModel?:boolean}={}){
+  await seed(store,app);
   const lease=String(Date.now());
   const acquired=store.db.query("INSERT INTO meta(key,value) VALUES('collectionLease',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(meta.value AS INTEGER)<? RETURNING value").get(lease,Date.now()-20*60000);
   if(!acquired)throw new Error('A collection is already running');
@@ -60,81 +50,63 @@ export async function collect(store:Store,app:string,data:string,options:{noX?:b
         return {id:feed.id,records,etag:response.headers.get('etag'),modified:response.headers.get('last-modified'),error:null};
       }catch(error){return {id:feed.id,records:[],error:error instanceof Error?error.message:'Fetch failed'};}
     };
-    const python=config.python;
-    // YouTube's channel RSS stopped answering (404), so channels are listed through yt-dlp instead.
+    // RSS, YouTube, X and the web sources run side by side.
     const youtube=feeds.filter(f=>/youtube\.com\/feeds\/videos\.xml/.test(f.url));
-    // Reddit answers 429 to quick successive requests, so its feeds go one at a time, 12 s apart; a refused
-    // subreddit is simply taken next time (its top-of-day list does not go away).
-    const reddit=feeds.filter(f=>/(^|\.)reddit\.com$/.test(new URL(f.url).hostname));
-    // X, RSS and YouTube run side by side; Reddit (slow, rate limited) starts too but does not hold up the first save.
-    const redditTask=timed('reddit',(async()=>{const out=[];for(const [i,feed] of reddit.entries()){if(i)await Bun.sleep(REDDIT_GAP);out.push(await fetchFeed(feed));}return out;})());
-    const xTask=timed('x',fetchTweets(store,cutoff,options));
-    const [others,videos,{tweets,xSuccess}]=await Promise.all([timed('rss',parallel(feeds.filter(f=>!reddit.includes(f)&&!youtube.includes(f)),6,fetchFeed)),timed('youtube',youtubeChannels(store,app,python,youtube,cutoff)),xTask]);
-    if(!existsSync(python))throw new Error('Collector Python environment missing. Run rmt-radar install.');
+    const [results,videos,{tweets,xSuccess},web]=await Promise.all([
+      timed('rss',parallel(feeds.filter(f=>!youtube.includes(f)),6,fetchFeed)),
+      timed('youtube',youtubeChannels(store,youtube,cutoff)),
+      timed('x',fetchTweets(store,cutoff,options)),
+      timed('web',options.noWeb?Promise.resolve({records:[],statuses:[] as WebStatus[]}):collectWeb(new Date(now)))]);
     const inWindow=(r:RecordData)=>{const ms=Date.parse(String(r.published_at));return !Number.isFinite(ms)||ms>=cutoff&&ms<=now;};
-    const first=[...others,...videos];
-    const payload=await timed('adapter',adapter(app,python,store,{records:first.flatMap(r=>r.records),tweets,webs:!options.noWeb,no_model:Boolean(options.noModel)}));
-    const records=payload.records.filter(inWindow);
+    const first=[...results,...videos];
+    const records=(await timed('classify',classify(store,[...first.flatMap(r=>r.records),...web.records],tweets,!options.noModel))).filter(inWindow);
     if(first.every(r=>r.error)&&!records.length)throw new Error('No sources could be collected');
-    // The first save makes everything except Reddit visible right away (a new revision the open app picks up).
     const result=store.ingest(records,new Date(now).toISOString(),first);
     new Preparation(store).enqueueCurrent();
     console.error(`timing ingest ${((Date.now()-started)/1000).toFixed(1)}s`);
-    const slow=await redditTask;
-    if(slow.some(r=>r.records.length)){
-      const later=await adapter(app,python,store,{records:slow.flatMap(r=>r.records),tweets:[],webs:false,no_model:Boolean(options.noModel)});
-      store.ingest(later.records.filter(inWindow),new Date(now).toISOString(),slow);new Preparation(store).enqueueCurrent();
-    }else for(const r of slow)store.db.query('UPDATE feeds SET checked_at=?,error=? WHERE id=?').run(now,r.error||null,r.id);
-    console.error(`timing reddit-ingest ${((Date.now()-started)/1000).toFixed(1)}s`);
-    const results=[...first,...slow];
+    const payload={statuses:web.statuses};
     // Hot is a bonus: a failed pick never fails the collection, the previous picks stay.
-    if(!options.noModel)await refreshHot(store,app,python,false,result.revision).catch(error=>console.error('Hot selection skipped:',error instanceof Error?error.message:error));
-    if(!options.noModel)await refreshSuggestions(store,app,python).catch(error=>console.error('Source suggestions skipped:',error instanceof Error?error.message:error));
+    if(!options.noModel)await refreshHot(store,false,result.revision).catch(error=>console.error('Hot selection skipped:',error instanceof Error?error.message:error));
+    if(!options.noModel)await refreshSuggestions(store).catch(error=>console.error('Source suggestions skipped:',error instanceof Error?error.message:error));
     if(xSuccess&&!options.noX&&process.env.SOCIALDATA_API_KEY)store.setMeta('xLastFetch',String(now/1000));
-    store.setMeta('collectionStatus',JSON.stringify({rss:results.filter(r=>!r.error).length,failed:results.filter(r=>r.error).length+payload.statuses.filter((s:any)=>!s.ok).length,webs:payload.statuses,x:options.noX?'not_requested':!process.env.SOCIALDATA_API_KEY?'not_configured':xSuccess?'ok':'failed'}));
-    if(!xSuccess||payload.statuses.some((s:any)=>!s.ok)||results.some(r=>r.error))console.error('Some sources failed; successful sources were saved and previous articles retained.');
+    store.setMeta('collectionStatus',JSON.stringify({rss:first.filter(r=>!r.error).length,failed:first.filter(r=>r.error).length+payload.statuses.filter(s=>!s.ok).length,webs:payload.statuses,x:options.noX?'not_requested':!process.env.SOCIALDATA_API_KEY?'not_configured':xSuccess?'ok':'failed'}));
+    if(!xSuccess||payload.statuses.some(s=>!s.ok)||first.some(r=>r.error))console.error('Some sources failed; successful sources were saved and previous articles retained.');
     return result;
   }finally{store.db.query("UPDATE meta SET value='0' WHERE key='collectionLease' AND value=?").run(lease);}
 }
 
 export const interestsPath=()=>config.interests;
 /** Hourly refreshes would otherwise spend a model call on an unchanged archive: pick only after new data. */
-export async function refreshHot(store:Store,app:string,python:string,force=false,sinceRevision=Number(store.meta('revision')||0)){
+export async function refreshHot(store:Store,force=false,sinceRevision=Number(store.meta('revision')||0)){
   // created_revision marks articles first seen by the latest collection; no new AI article, no new pick.
   const fresh=(store.db.query('SELECT COUNT(*) AS n FROM articles WHERE ai=1 AND created_revision>=?').get(sinceRevision) as {n:number}).n;
   if(!force&&!fresh){console.error('Hot: no new AI updates, skipped');return [];}
-  const picks=await new Hot(store).refresh(await readInterests(interestsPath()),modelPicker(app,python));
+  const picks=await new Hot(store).refresh(await readInterests(interestsPath()),modelPicker);
   console.error(`Hot: ${picks.length} new pick(s)`);return picks;
 }
 /** Suggestions change slowly; once a day is enough even with hourly refreshes. */
-export async function refreshSuggestions(store:Store,app:string,python:string,force=false){
+export async function refreshSuggestions(store:Store,force=false){
   if(!force&&Date.now()-Number(store.meta('suggestionsAt')||0)<20*3600000){console.error('Suggestions: refreshed today, skipped');return [];}
-  const kept=await new Suggestions(store).refresh(await readInterests(interestsPath()),modelRater(app,python));
+  const kept=await new Suggestions(store).refresh(await readInterests(interestsPath()),modelRater);
   store.setMeta('suggestionsAt',String(Date.now()));
   console.error(`Suggestions: ${kept.length} source(s)`);return kept;
 }
 
-/** Lists the newest uploads of each channel with yt-dlp; only videos never checked before cost a metadata request. */
-export async function youtubeChannels(store:Store,app:string,python:string,feeds:Feed[],cutoff:number){
+/** Lists the newest uploads of each channel; only videos never checked before cost a metadata request. */
+export async function youtubeChannels(store:Store,feeds:Feed[],cutoff:number){
   if(!feeds.length)return [];
   store.db.exec('CREATE TABLE IF NOT EXISTS youtube_checked(video_id TEXT PRIMARY KEY,at INTEGER NOT NULL)');
   store.db.query('DELETE FROM youtube_checked WHERE at<?').run(Date.now()-60*86400000);
-  const known=(store.db.query('SELECT video_id FROM youtube_checked').all() as {video_id:string}[]).map(r=>r.video_id);
-  const channels=feeds.map(f=>({feed_id:f.id,channel_id:new URL(f.url).searchParams.get('channel_id')}));
-  const failed=(error:string)=>feeds.map(f=>({id:f.id,records:[] as RecordData[],error}));
-  try{
-    const child=Bun.spawn([python,join(app,'scripts/youtube.py')],{stdin:new Blob([JSON.stringify({channels,known,cutoff:Math.floor(cutoff/1000)})]),stdout:'pipe',stderr:'inherit'});
-    const output=await new Response(child.stdout).text();
-    if(await child.exited!==0)return failed('YouTube listing failed');
-    const answer=JSON.parse(output) as {channels:{feed_id:string;videos:Record<string,unknown>[];checked:string[];error:string|null}[]};
-    const remember=store.db.query('INSERT OR IGNORE INTO youtube_checked VALUES(?,?)');
-    store.db.transaction(()=>answer.channels.forEach(c=>c.checked.forEach(id=>remember.run(id,Date.now()))))();
-    return feeds.map(feed=>{
-      const entry=answer.channels.find(c=>c.feed_id===feed.id);
-      const records=(entry?.videos??[]).map(v=>({...v,id:hash(canonical(String(v.url))),url:canonical(String(v.url)),source:feed.title,site_id:'opmlrss',feed_id:feed.id,published_at:new Date(Number(v.published_at)*1000).toISOString(),trusted_ai:feed.ai===1,source_id:feed.source_id}));
-      return {id:feed.id,records,error:entry?.error??(entry?null:'Channel missing from listing')};
-    });
-  }catch(error){return failed(error instanceof Error?error.message:'YouTube listing failed');}
+  const known=new Set((store.db.query('SELECT video_id FROM youtube_checked').all() as {video_id:string}[]).map(r=>r.video_id));
+  const remember=store.db.query('INSERT OR IGNORE INTO youtube_checked VALUES(?,?)');
+  return parallel(feeds,3,async feed=>{
+    const channel=new URL(feed.url).searchParams.get('channel_id');
+    if(!channel)return {id:feed.id,records:[] as RecordData[],error:'Not a YouTube channel feed'};
+    const listing=await channelVideos(channel,known,cutoff);
+    store.db.transaction(()=>listing.checked.forEach(id=>remember.run(id,Date.now())))();
+    const records=listing.videos.map(v=>({...v,id:hash(canonical(v.url)),url:canonical(v.url),source:feed.title,site_id:'opmlrss',feed_id:feed.id,published_at:new Date(v.published_at*1000).toISOString(),trusted_ai:feed.ai===1,source_id:feed.source_id}));
+    return {id:feed.id,records,error:listing.error};
+  });
 }
 
 /** X Articles arrive from SocialData as a bare link; the public embed API (no key, no cost) has their title,
@@ -172,11 +144,22 @@ async function fetchTweets(store:Store,cutoff:number,options:{noX?:boolean}){
   return {tweets,xSuccess};
 }
 
-/** Web scrapers, tweet records and the relevance filter (keywords, then the model) live in the Python adapter. */
-async function adapter(app:string,python:string,store:Store,input:{records:RecordData[];tweets:unknown[];webs:boolean;no_model:boolean}){
-  const child=Bun.spawn([python,join(app,'scripts/collect_adapter.py'),join(store.directory,'radar.db')],{stdin:new Blob([JSON.stringify(input)]),stdout:'pipe',stderr:'inherit',env:{...process.env,SOCIALDATA_ENABLED:'0'}});
-  const output=await new Response(child.stdout).text();if(await child.exited!==0)throw new Error('Source adapter failed; previous articles were kept');
-  const payload=JSON.parse(output) as {records:RecordData[];statuses:{ok:boolean}[]};
-  if(!Array.isArray(payload.records)||!Array.isArray(payload.statuses))throw new Error('Invalid source adapter response');
-  return payload;
+/** Tweets become records, then every record gets its relevance: trusted AI source, the keyword filter, a data
+ *  engineering signal, and finally the model triage for what the words alone dropped. */
+export async function classify(store:Store,input:RecordData[],tweets:unknown[],useModel:boolean){
+  const records=[...input];
+  for(const tweet of tweets){
+    const record=toRecord(tweet);if(!record)continue;
+    const article=(record.article??{}) as {title?:string;preview?:string};
+    records.push({site_id:'opmlrss',source:'X follows',title:`${record.text} ${article.title??''} ${article.preview??''}`.trim(),url:`https://x.com/${record.handle}/status/${record.id}`,published_at:new Date(Number(record.published)*1000).toISOString(),tweet:record});
+  }
+  for(const record of records){
+    const original=String(record.title??''),text=`${original} ${String(record.summary||'')}`;
+    for(const [key,value] of Object.entries(addAiRelevance({...record,title:text})))if(key.startsWith('ai_'))record[key]=value;
+    if(record.trusted_ai){record.ai_is_related=true;record.ai_relevance_reason='ai_source';}
+    else if(!record.ai_is_related&&hasDataSignal(text)){record.ai_is_related=true;record.ai_relevance_reason='data_signal';}
+    record.id=String(record.id||hash(String(record.url)));
+  }
+  await triage(store,records,useModel);
+  return records;
 }
