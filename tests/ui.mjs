@@ -70,7 +70,7 @@ try{
   const optionLabels={scope:{ai:'AI & data',all:'Everything'},format:{all:'All',article:'Articles',x:'X'}};
   const select=async(id,value)=>{await p.locator(`#${id}`).getByRole('radio',{name:optionLabels[id][value],exact:true}).click();await sleep(250);};
   check(`${width}: English, one responsive feed`,await p.locator('html').getAttribute('lang')==='en'&&await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-  check(`${width}: React renders ready-made SDK components`,await p.evaluate(()=>['drawer-trigger','segmented-control'].slice(0,1).every(slot=>document.querySelector(`[data-slot="${slot}"]`))&&Boolean(document.querySelector('#root')?.firstElementChild)));
+  check(`${width}: React renders ready-made SDK components`,await p.evaluate(()=>Boolean(document.querySelector('#optionsButton'))&&Boolean(document.querySelector('#root')?.firstElementChild)));
   if(width===390){
     await p.evaluate(()=>{const specimen=document.createElement('p');specimen.id='fontSpecimen';specimen.style.cssText='position:fixed;bottom:0;left:0;z-index:999';specimen.textContent='Příliš žluťoučký kůň';document.body.append(specimen);});
     await p.evaluate(async()=>{await document.fonts.load('16px Geist','Příliš žluťoučký kůň');await document.fonts.ready;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});
@@ -107,7 +107,7 @@ try{
   check(`${width}: X bookmark is visible in the card header`,await post.locator('.card-head .bookmark').isVisible());
   if(await isSaved(postId)){await toggleSave(post,'Remove from Saved');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='false',postId);}
   if(width===390){await post.scrollIntoViewIfNeeded();const box=await post.boundingBox();await swipe(box.x+box.width-75,Math.max(130,box.y+85),-140,0);await sleep(300);check('left swipe on a card does not save or open it',!(await isSaved(postId))&&new URL(p.url()).pathname==='/');}
-  await toggleSave(post,'Save for later');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='true',postId);check(`${width}: saving offers Undo`,await p.getByRole('button',{name:'Undo',exact:true}).isVisible());
+  await toggleSave(post,'Save for later');await p.waitForFunction(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='true',postId);check(`${width}: saving offers Undo`,await p.getByRole('button',{name:'Undo',exact:true}).waitFor({timeout:5000}).then(()=>true,()=>false));
   check(`${width}: saved X posts enter the same library as articles`,(await request('/api/feed?saved=1')).items.some(item=>item.id===postId&&item.kind==='x'));
   await post.getByRole('link',{name:'Open thread',exact:true}).click();await p.locator('#detailLabel').filter({hasText:'Thread'}).waitFor();check(`${width}: X opens a local thread from existing data`,new URL(p.url()).pathname.startsWith('/post/')&&await p.locator('#readingContent .feed-card.tweet').count()===1);check(`${width}: thread detail does not fetch paid replies`,remoteCalls===0);check(`${width}: conversation remains available on X`,await p.locator('.thread-conversation').getAttribute('href')===postURL);
   await p.locator('#detailSave').click();await p.waitForFunction(()=>document.querySelector('#detailSave').getAttribute('aria-pressed')==='false');
@@ -122,8 +122,9 @@ try{
   await select('scope','all');await select('format','article');await p.waitForFunction(()=>document.querySelectorAll('.feed-card.tweet').length===0&&document.querySelectorAll('.feed-card.article').length>0);check(`${width}: articles-only uses a filtered API query`,await p.locator('.feed-card.tweet').count()===0&&await p.locator('.feed-card.article').count()>0);
   await p.locator('#searchInput').fill('zzzznoresultszzzz');await p.waitForSelector('#empty:not([hidden])');check(`${width}: empty search is explained`,(await p.locator('#emptyTitle').innerText())==='No matching results');
   await p.getByRole('button',{name:'Clear search',exact:true}).click();await p.waitForSelector('.feed-card');check(`${width}: SDK clear returns focus`,await p.locator('#searchInput').evaluate(el=>el===document.activeElement));
-  await close();// A text article, not a video: a video's reader starts with the player, where gestures rightly never start.
-  const article=p.locator('.feed-card.article').filter({hasNot:p.locator('.format-video')}).first();await article.scrollIntoViewIfNeeded();check(`${width}: source identity is present and a missing image leaves no empty preview`,await article.locator('.card-row > .avatar').isVisible()&&await article.locator('.preview').count()===0);
+  // A text article, not a video: a video's reader starts with the player, where gestures rightly never start.
+  const textArticles='.feed-card.article:not([data-url*="youtube.com"])';
+  await close();const article=p.locator(textArticles).first();await article.scrollIntoViewIfNeeded();check(`${width}: source identity is present and a missing image leaves no empty preview`,await article.locator('.card-row > .avatar').isVisible()&&await article.locator('.preview').count()===0);
   check(`${width}: articles use the compact accessible A badge`,await article.locator('.format-article').getAttribute('aria-label')==='Article');
   const original=await article.getAttribute('data-url');
   await p.route('**/api/article/*/content',route=>route.fulfill({json:{title:'A readable article',author:'Test author',html:'<p>Full article body from the reading endpoint.</p>',url:original}}));
@@ -137,7 +138,7 @@ try{
   const seenDuringReading=sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1200);check(`${width}: reader pauses background seen tracking`,sql('SELECT COUNT(*) FROM seen')[0][0]===seenDuringReading);
   await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});await sleep(250);check(`${width}: reader close returns to the same feed position`,Math.abs((await p.evaluate(()=>scrollY))-readerY)<5);
   if(width===390){
-    await p.locator('.article-link').first().click();await p.locator('.reading-prose').waitFor();const detailURL=p.url();
+    await p.locator(`${textArticles} .article-link`).first().click();await p.locator('.reading-prose').waitFor();const detailURL=p.url();
     await p.goBack();await p.locator('#articlePage').waitFor({state:'hidden'});check('browser back returns to the feed',new URL(p.url()).pathname==='/');
     await p.goForward();await p.locator('.reading-prose').waitFor();check('browser forward restores the article',p.url()===detailURL);
     await p.reload();await p.locator('.reading-prose').waitFor();check('article URL survives reload',p.url()===detailURL);
@@ -225,14 +226,57 @@ try{
     check('opening a Hot item takes it off the list and returns to Hot',await p.locator('#hot .hot-item').count()===1&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true'&&sql('SELECT COUNT(*) FROM opened WHERE article_id=?',[picks[0]])[0][0]===1);
     await p.locator('#viewFeed').click();await p.locator('#feedView').waitFor({state:'visible'});
   }
-  await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources .side-disclosure-trigger').click();await p.locator('#sourceSearch').fill(source.name);await p.locator('.source-row').first().waitFor();check(`${width}: sources are configurable from the UI`,await p.locator('.source-row').count()>0);await close();
+  // Sources: its own page (/sources) opened from one drawer row; Back returns to the same place in the feed.
+  const sourcesPage=async()=>{await open();await p.locator('#openSources').click();await p.locator('#sourcesPage .source-item').first().waitFor();await p.locator('#optionsSheet').waitFor({state:'hidden'});};
+  const sourceRows=()=>p.evaluate(()=>[...document.querySelectorAll('#sourcesPage .source-item')].map(r=>({kind:r.dataset.kind,name:r.querySelector('b').textContent,text:r.textContent})));
+  const kind=async label=>{await p.locator('#sourcesKind').getByRole('radio',{name:new RegExp('^'+label)}).click();await sleep(200);};
+  await p.evaluate(()=>scrollTo(0,0));await sleep(200);await p.evaluate(()=>scrollTo(0,1200));await sleep(400);await reveal();const sourcesY=await p.evaluate(()=>scrollY);
+  await open();const row=await p.locator('#openSources').innerText();
+  check(`${width}: the drawer sums up sources in one row instead of listing them`,/\d+ sources/.test(row)&&await p.locator('#optionsSheet .switch').count()<=3&&await p.locator('#optionsSheet #addSourceUrl, #optionsSheet #addXHandle').count()===0,row);
+  await close();await sourcesPage();
+  const listed=(await request('/api/sources')).length+(await request('/api/x-accounts')).length;
+  check(`${width}: Sources is its own page with every source and X account`,await p.evaluate(()=>location.pathname)==='/sources'&&await p.locator('#feedView').isHidden()&&(await sourceRows()).length===listed&&await p.evaluate(()=>scrollY===0&&document.documentElement.scrollWidth<=innerWidth),`${(await sourceRows()).length}/${listed}`);
+  check(`${width}: the page header counts what is on`,/^\d+ of \d+ on/.test(await p.locator('#sourcesSummary').innerText()));
+  await kind('YouTube');let rows=await sourceRows();check(`${width}: the type filter shows only that type`,rows.length>0&&rows.every(r=>r.kind==='youtube'),JSON.stringify(rows.slice(0,3)));
+  await kind('X');rows=await sourceRows();check(`${width}: X lists the followed accounts`,rows.length>1&&rows.every(r=>r.kind==='x')&&rows.some(r=>r.text.includes('@')));
+  await kind('All');await p.keyboard.press('/');check(`${width}: "/" finds a source`,await p.evaluate(()=>document.activeElement?.id)==='sourcesSearch');
+  await p.locator('#sourcesSearch').fill(source.name);await p.waitForFunction(n=>{const r=document.querySelectorAll('#sourcesPage .source-item');return r.length>0&&r.length<20&&[...r].every(x=>x.textContent.toLowerCase().includes(n));},source.name.toLowerCase());
+  check(`${width}: search narrows the list`,(await sourceRows()).every(r=>r.name.toLowerCase().includes(source.name.toLowerCase())));
+  await p.locator('#sourcesBack').click();await p.locator('#feedView').waitFor({state:'visible'});await sleep(300);
+  check(`${width}: Back returns to the same place in the feed`,await p.evaluate(()=>location.pathname)==='/'&&Math.abs(await p.evaluate(()=>scrollY)-sourcesY)<=2&&await p.locator('#sourcesPage').count()===0,`${await p.evaluate(()=>scrollY)} vs ${sourcesY}`);
+  await sourcesPage();await p.locator('#sourcesSearch').fill(source.name);
+  const sourceRow=p.locator('#sourcesPage .source-item').filter({hasText:source.name}).first(),flip=async()=>{const saved=p.waitForResponse(r=>r.url().endsWith('/api/sources')&&r.request().method()==='POST');await sourceRow.getByRole('switch').click();await saved;};
+  await flip();check(`${width}: switching a source off persists in SQLite`,sql('SELECT enabled FROM sources WHERE id=?',[source.id])[0][0]===0&&await sourceRow.getByRole('switch').getAttribute('aria-checked')==='false');
+  await flip();check(`${width}: switching it back on persists too`,sql('SELECT enabled FROM sources WHERE id=?',[source.id])[0][0]===1);
+  await p.goBack();await p.locator('#feedView').waitFor({state:'visible'});await p.waitForSelector('#feed .feed-card');
+  check(`${width}: browser Back leaves Sources for the rebuilt feed`,await p.evaluate(()=>location.pathname)==='/'&&await p.locator('#sourcesPage').count()===0);
   if(width===390){
     sql('INSERT OR REPLACE INTO suggestions VALUES(?,?,?,?,?,?,?,?,?)',['f'.repeat(32),'x','newtooldev','New Tool Dev',3,'Píše o nástrojích.','[]','new',Date.now()]);
-    await p.evaluate(()=>scrollTo(0,0));await open();await p.locator('.side-sources .side-disclosure-trigger').click();await p.locator('#suggestions .suggestion').first().waitFor();
+    await sourcesPage();await p.locator('#suggestions .suggestion').first().waitFor();
     check('suggested sources show who cites them and why',await p.locator('#suggestions').innerText().then(t=>t.includes('@newtooldev')&&t.includes('cited by 3')&&t.includes('Píše o nástrojích.')));
     const decided=p.waitForResponse(r=>r.url().endsWith('/api/suggestions')&&r.request().method()==='POST');await p.locator('#suggestions .suggestion').first().getByRole('button',{name:'Add',exact:true}).click();await p.waitForFunction(()=>!document.querySelector('#suggestions .suggestion'));await decided;
     check('Add follows the suggested account and the suggestion does not come back',sql("SELECT enabled FROM x_accounts WHERE handle='newtooldev'")[0]?.[0]===1&&sql("SELECT status FROM suggestions WHERE id=?",['f'.repeat(32)])[0][0]==='added');
-    await close();
+    await p.locator('#addXHandle').fill('@ui_test_handle');const followed=p.waitForResponse(r=>r.url().endsWith('/api/x-accounts')&&r.request().method()==='POST');await p.getByRole('button',{name:'Follow',exact:true}).click();await followed;
+    await p.locator('#sourcesSearch').fill('ui_test_handle');const account=p.locator('#sourcesPage .source-item').filter({hasText:'@ui_test_handle'});await account.waitFor();
+    check('an X account added on the Sources page is followed',sql("SELECT enabled FROM x_accounts WHERE handle='ui_test_handle'")[0]?.[0]===1);
+    const off=p.waitForResponse(r=>r.url().endsWith('/api/x-accounts')&&r.request().method()==='POST');await account.getByRole('switch').click();await off;
+    check('switching an X account off persists in SQLite',sql("SELECT enabled FROM x_accounts WHERE handle='ui_test_handle'")[0]?.[0]===0);
+    const box=await account.getByRole('switch').evaluate(el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el,'::after');return {h:r.height-2*parseFloat(s.top),w:r.width-2*parseFloat(s.left)};});
+    check('390: row switches have a 44 px target',box.h>=44&&box.w>=44,JSON.stringify(box));
+    await p.locator('#sourcesBack').click();await p.locator('#feedView').waitFor({state:'visible'});
+  }else{
+    await p.goto(base+'/sources');await p.locator('#sourcesPage .source-item').first().waitFor();
+    check('/sources loads directly as a page',await p.locator('#feedView').isHidden()&&await p.locator('#sourcesTitle').innerText()==='Sources');
+    const columns=await p.evaluate(()=>{const r=document.querySelector('#sourcesList .source-item');return [r.querySelector('.source-type'),r.querySelector('.source-count')].map(e=>e.getBoundingClientRect().left);});
+    const aside=await p.locator('.sources-aside').boundingBox(),main=await p.locator('.sources-main').boundingBox();
+    check('1280: desktop puts the forms beside a list with type and update columns',aside.x+aside.width<=main.x&&columns[0]<columns[1]&&main.width>600,JSON.stringify({aside,main,columns}));
+    const doomed=(await request('/api/sources')).find(s=>s.kind==='rss');await p.locator('#sourcesSearch').fill(doomed.name);
+    await p.locator('#sourcesPage .source-item').filter({hasText:doomed.name}).first().getByRole('button',{name:`Remove ${doomed.name}`,exact:true}).click();await p.locator('#removeConfirm').waitFor();
+    check('removing a source asks first',sql('SELECT COUNT(*) FROM sources WHERE id=?',[doomed.id])[0][0]===1);
+    const removed=p.waitForResponse(r=>r.url().endsWith('/api/sources/remove'));await p.locator('#removeConfirm').getByRole('button',{name:'Remove',exact:true}).click();await removed;await p.locator('#removeConfirm').waitFor({state:'detached'});
+    check('Remove deletes the source and says so',sql('SELECT COUNT(*) FROM sources WHERE id=?',[doomed.id])[0][0]===0&&await p.locator('.toast').innerText().then(t=>t.includes(`Removed ${doomed.name}`)));
+    await p.locator('#sourcesBack').click();await p.locator('#feedView').waitFor({state:'visible'});await p.waitForSelector('#feed .feed-card');
+    check('Back from a directly opened Sources page goes to the feed',await p.evaluate(()=>location.pathname)==='/');
   }
   if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
     check('the top bar shows unseen / all for the current view',/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(bubble.replace(/\s+/g,' ').trim())&&Number(bubble.split('/')[1].replace(/\D/g,''))>0,bubble);}

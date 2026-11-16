@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { Store, type RecordData } from '../src/store';
 
 const root = join(import.meta.dir, '..');
-const BUDGET = { firstPaintKB: 160, feedMs: 40, pageMs: 15, statusMs: 15, hotMs: 15 };
+const BUDGET = { firstPaintKB: 120, feedMs: 40, pageMs: 15, statusMs: 15, hotMs: 15 };
 const failures: string[] = [];
 const report = (name: string, value: number, budget: number, unit: string) => {
   const ok = value <= budget;

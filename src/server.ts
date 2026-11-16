@@ -110,7 +110,7 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(summary)return articleSummary(summary[1]!);
         const image=/^\/api\/image\/([a-f0-9]{32})\/(icon|preview)$/.exec(path);
         if(image){const article=store.article(image[1]!);if(!article)return json({error:'Unknown article'},404);return await media.get(String(article.url),image[2]==='icon',typeof article.image_url==='string'?article.image_url:undefined);}
-        const file=path==='/'||/^\/(article|post)\/[a-f0-9]{32}$/.test(path)?'index.html':path==='/site.webmanifest'?'site.webmanifest':path.startsWith('/assets/')?decodeURIComponent(path.slice(1)):null;
+        const file=path==='/'||path==='/sources'||/^\/(article|post)\/[a-f0-9]{32}$/.test(path)?'index.html':path==='/site.webmanifest'?'site.webmanifest':path.startsWith('/assets/')?decodeURIComponent(path.slice(1)):null;
         if(!file||file.includes('..')||file.includes('\\')||file.includes('\0'))return json({error:'Not found'},404);
         return await serveStatic(app,file,request)??json({error:'Not found'},404);
       }
