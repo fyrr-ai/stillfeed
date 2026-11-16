@@ -1,4 +1,5 @@
 import type { Article, Filters } from '../src/store';
+import { t } from './i18n';
 
 export type { Article };
 export type Feed = { items: Article[]; total: number; unseen: number; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
@@ -8,8 +9,14 @@ export type Session = { preferences: Preferences; batch: string; pages: number; 
 /** After this long away, the feed is rebuilt so everything seen meanwhile disappears. */
 export const FRESH_AFTER = 15 * 60 * 1000;
 export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
-export type Source = { id: string; name: string; enabled: number; articles: number; error?: string };
-export type Status = { generatedAt: string; revision: number; refresh: string; importError: string | null; collection: { failed?: number | unknown[]; rss?: number }; preparation?: Record<string, number> };
+export type SourceKind = 'rss' | 'youtube' | 'web' | 'x';
+export type Source = { id: string; name: string; enabled: number; articles: number; error?: string | null; url?: string; kind?: SourceKind };
+export type FailedSource = { id: string; name: string; error: string };
+export type XAccount = { handle: string; name?: string; enabled: boolean };
+/** Server configuration as reported by GET /api/config: status only, never secrets. */
+export type Config = { language: string; ai: { provider: 'anthropic' | 'openai' | 'codex' | null; model: string | null }; x: { configured: boolean } };
+export type Summary = { points: string[]; model?: string; language?: string };
+export type Status = { generatedAt: string; revision: number; refresh: string; importError: string | null; collection: { failed?: number | unknown[]; rss?: number }; preparation?: Record<string, number>; articles?: { total: number }; failedSources?: FailedSource[] };
 export type HotItem = Article & { reason: string };
 export type Reading = { title: string; author: string; html: string; url: string };
 
@@ -38,7 +45,7 @@ export async function prepared<T>(path: string, cancelled: () => boolean, body?:
 }
 
 export const link = (value: unknown) => { try { const u = new URL(String(value)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
-export const relative = (ms: number) => { const n = Math.max(0, (Date.now() - ms) / 1000); return n < 60 ? 'now' : n < 3600 ? `${Math.floor(n / 60)}m` : n < 86400 ? `${Math.floor(n / 3600)}h` : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(ms); };
+export const relative = (ms: number) => { const n = Math.max(0, (Date.now() - ms) / 1000); return n < 60 ? t('time.now') : n < 3600 ? t('time.minutes', { n: Math.floor(n / 60) }) : n < 86400 ? t('time.hours', { n: Math.floor(n / 3600) }) : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(ms); };
 export const count = (n: unknown) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(n) || 0);
 /** Feed titles arrive HTML-escaped; decode entities to plain text, never to markup. */
 export function headline(value: string) { const text = document.createElement('textarea'); text.innerHTML = value.replace(/</g, '&lt;').replace(/>/g, '&gt;'); return text.value; }
@@ -83,8 +90,20 @@ export function gestureAllowed(target: EventTarget | null, x: number) {
 /** Videos and Reddit posts are articles with their own badge and reader extras. */
 export function youtubeId(url: string) { try { const u = new URL(url); if (u.hostname === 'youtu.be') return u.pathname.slice(1) || null; if (/(^|\.)youtube\.com$/.test(u.hostname)) return u.searchParams.get('v') || /^\/(shorts|live)\/([\w-]{11})/.exec(u.pathname)?.[2] || null; } catch {} return null; }
 export const isReddit = (url: string) => { try { return /(^|\.)reddit\.com$/.test(new URL(url).hostname); } catch { return false; } };
-export function articleBadge(url: string): { letter: string; label: string; kind: string } {
-  if (youtubeId(url)) return { letter: 'V', label: 'Video', kind: 'video' };
-  if (isReddit(url)) return { letter: 'R', label: 'Reddit', kind: 'reddit' };
-  return { letter: 'A', label: 'Article', kind: 'article' };
+export type Format = 'article' | 'video' | 'reddit';
+export function articleFormat(url: string): { kind: Format; label: string } {
+  if (youtubeId(url)) return { kind: 'video', label: t('card.video') };
+  if (isReddit(url)) return { kind: 'reddit', label: t('card.reddit') };
+  return { kind: 'article', label: t('card.article') };
+}
+
+/** Optional endpoints: a 404 from an older server means "not available", not an error. */
+export async function optional<T>(path: string): Promise<T | null> {
+  try {
+    const response = await fetch(path, { cache: 'no-store' });
+    if (response.status === 404) return null;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    return data as T;
+  } catch { return null; }
 }
