@@ -281,5 +281,7 @@ export const locale = 'en';
 /** Human name of a summary language code ("cs" → "Czech"); the code itself when unknown. */
 export function languageName(code: string | null | undefined): string {
   if (!code) return '';
+  // STILLFEED_LANGUAGE is usually a name ("Czech"); only short tags like "cs" or "pt-BR" need translating.
+  if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(code)) return code;
   try { return new Intl.DisplayNames([locale], { type: 'language' }).of(code) || code; } catch { return code; }
 }
