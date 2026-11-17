@@ -89,11 +89,12 @@ export function App() {
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
   const [unseen, setUnseen] = useState(0);
+  const [renderedCount, setRenderedCount] = useState(12);
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
     prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
-    outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
+    outbox: loadOutbox(), pages: 0, request: 0, restoring: false, restoreAnchor: null as string | null, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0,
     /** Explicitly hidden rows in the active snapshot. */
@@ -201,7 +202,10 @@ export function App() {
       r.collapsed = new Set(result.dismissed ?? []);
       // Only explicit dismissals leave the current snapshot.
       const visible = r.prefs.view !== 'saved' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
-      flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
+      const nextItems = append ? [...r.items, ...visible] : visible;
+      const anchorIndex = r.restoreAnchor ? nextItems.findIndex(article => article.id === r.restoreAnchor) : -1;
+      const firstCount = append ? r.items.length + 12 : Math.max(12, anchorIndex + 4);
+      flushSync(() => { setRenderedCount(firstCount); setFeed(result); setUnseen(result.unseen); setItems(nextItems); setLoading(false); setBooting(false); });
       r.pages+=Math.max(1,Math.ceil(result.items.length/PAGE_SIZE));
       watch(); save();
     } catch (error) {
@@ -210,6 +214,17 @@ export function App() {
       throw error;
     }
   }
+
+  // Let the browser paint the visible rows before mounting the rest of a restored list.
+  useEffect(() => {
+    if (renderedCount >= items.length) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => setRenderedCount(count => Math.min(count + 30, items.length)));
+    });
+    return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame); };
+  }, [items, renderedCount]);
+  useEffect(() => { watch(); }, [renderedCount]);
 
   async function change(next: Partial<Preferences>, newSeenBatch = false) {
     setPrefs({ ...r.prefs, ...next });
@@ -241,6 +256,7 @@ export function App() {
       if(base&&saved?.personalBatch!==base.batch){setPrefs({...base.preferences,view:'hot'});saved=null;}
     }
     r.collapsed = new Set();
+    r.restoreAnchor = saved?.position?.id ?? null;
     r.restoring = true; if (listRef.current) listRef.current.style.visibility = 'hidden';
     try {
       if (saved && !fresh) {
@@ -255,7 +271,7 @@ export function App() {
       const node = saved?.position ? listRef.current?.querySelector<HTMLElement>(`[data-id="${saved.position.id}"]`) : null;
       if (!covered()) window.scrollTo(0, node && saved?.position ? node.getBoundingClientRect().top + scrollY - saved.position.offset : 0);
       if (!covered() && node && saved?.position) pinAnchor(saved.position.id, saved.position.offset);
-    } finally { r.restoring = false; if (listRef.current) listRef.current.style.visibility = 'visible'; watch(); save(); }
+    } finally { r.restoring = false; r.restoreAnchor = null; if (listRef.current) listRef.current.style.visibility = 'visible'; watch(); save(); }
   }
 
   async function switchView(view: Preferences['view']) {
@@ -663,11 +679,11 @@ export function App() {
         {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSetup} dismiss={dismissSetup} />}
         <div id="loading" className="skeleton" aria-label={t('feed.loading')} hidden={!booting}><div></div><div></div><div></div></div>
         <section id="feed" ref={listRef} aria-label={t('feed.label')}>
-          {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} note={view === 'hot' && article.personalReason ? {label:t('hot.why'),text:article.personalReason} : undefined} />)}
+          {items.slice(0, renderedCount).map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} showReason={view === 'hot'} />)}
         </section>
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
         {emptyKind && view !== 'hot' && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
-        <footer className="feed-footer" hidden={Boolean(empty)}>
+        <footer className="feed-footer" hidden={Boolean(empty) || renderedCount < items.length}>
           {view !== 'saved' && viewed > 0 && <button className="secondary-button" disabled={hidingViewed} onClick={() => void hideViewed()}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>

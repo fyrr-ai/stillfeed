@@ -26,7 +26,7 @@ function Avatar({ name, src, className = '' }: { name: string; src: string; clas
   const hue = [...name].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 360, 0);
   return <span className={`avatar ${className}`} aria-hidden="true" style={{ '--hue': hue } as React.CSSProperties}>
     <span>{[...name][0]?.toUpperCase() || 'R'}</span>
-    {src && !failed && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
+    {src && !failed && <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
   </span>;
 }
 
@@ -46,7 +46,7 @@ function Photo({ media, single }: { media: Record<string, unknown>; single: bool
   const src = link(media.src);
   const w = Number(media.w), h = Number(media.h);
   if (!src || failed) return null;
-  const image = <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={w && h ? { aspectRatio: `${w}/${h}` } : undefined}
+  const image = <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={w && h ? { aspectRatio: `${w}/${h}` } : undefined}
     onLoad={event => { const el = event.currentTarget; if (single && el.naturalWidth && el.naturalHeight / el.naturalWidth * el.clientWidth > MEDIA_CAP + 8) setCropped(true); }}
     onError={() => setFailed(true)} />;
   if (media.type !== 'photo') return <span className="photo photo-video">{image}<span className="play" aria-label={t('card.videoOnX')}><Icon name="video" size={22} /></span></span>;
@@ -72,8 +72,7 @@ function Preview({ article }: { article: Article }) {
 
 const formatIcons: Record<string, IconName> = { article: 'article', video: 'video', reddit: 'reddit' };
 
-export type CardNote = { label: string; text: string };
-export const Card = memo(function Card({ article, seen, busy, inThread = false, actions, note }: { article: Article; seen: boolean; busy: boolean; inThread?: boolean; actions: CardActions; note?: CardNote }) {
+export const Card = memo(function Card({ article, seen, busy, inThread = false, actions, showReason = false }: { article: Article; seen: boolean; busy: boolean; inThread?: boolean; actions: CardActions; showReason?: boolean }) {
   const tweet = article.tweet as Record<string, any> | null;
   const isX = article.kind === 'x';
   const format = articleFormat(article.url);
@@ -109,14 +108,14 @@ export const Card = memo(function Card({ article, seen, busy, inThread = false, 
         </div>
         <button className="icon-button bookmark" aria-label={article.saved ? t('card.unsave') : t('card.save')} aria-pressed={article.saved} disabled={busy} aria-busy={busy || undefined} onClick={() => actions.save(article, !article.saved)}><Icon name="bookmark" size={17} /></button>
       </header>
-      {note && <aside className="card-note" aria-label={note.label}>
-        <div><span className="card-note-label"><Icon name="flame" size={13} />{note.label}</span><p>{note.text}</p></div>
+      {showReason && article.personalReason && <aside className="card-note" aria-label={t('hot.why')}>
+        <div><span className="card-note-label"><Icon name="flame" size={13} />{t('hot.why')}</span><p>{article.personalReason}</p></div>
       </aside>}
       {isX ? <>
         <div className="post-text" onClick={event => { if ((event.target as Element).closest('a')) actions.opened(article.id); }}><RichText text={tweet?.text || article.title} links={tweet?.links} drop={tweet?.drop} /></div>
         <Photos items={tweet?.media} />
         {tweet?.article?.title && <a className="x-article" href={link(tweet.article.url) || article.url} target="_blank" rel="noopener noreferrer" onClick={inThread ? () => actions.opened(article.id) : openFrom}>
-          {link(tweet.article.image) && <img src={link(tweet.article.image)} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+          {link(tweet.article.image) && <img src={link(tweet.article.image)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
           <span className="x-article-body"><small>{t('card.articleOnX')}{inThread && <Icon name="external" size={11} />}</small><b>{String(tweet.article.title)}</b>{tweet.article.preview && <span>{String(tweet.article.preview)}</span>}</span>
         </a>}
         {tweet?.quote && typeof tweet.quote === 'object' && <div className="quote"><b>{String(tweet.quote.name || tweet.quote.handle || '')}</b><div className="post-text"><RichText text={tweet.quote.text} links={tweet.quote.links} drop={tweet.quote.drop} /></div><Photos items={tweet.quote.media} /></div>}
