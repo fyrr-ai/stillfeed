@@ -19,7 +19,7 @@ the news and serves the app you read it in.
 | | |
 | --- | --- |
 | **What it does** | Every two hours it fetches the blogs, YouTube channels, news sites and X accounts you follow, keeps what is about AI and data engineering, and prepares clean text and AI summaries. |
-| **What you use** | A web app made for the phone first: a feed, the few items you should not miss today (Hot), saved items and a clean reader with a three-point summary in your language. |
+| **What you use** | A web app made for the phone first: a feed, a personal selection based on your interests (Hot), saved items and a clean reader with a three-point summary in your language. |
 | **Where it runs** | On your laptop, a home server or any small VPS. One process and one SQLite file, started with one command or Docker. |
 | **On your phone** | Open it in the browser, or add it to your home screen to use it like an app. There is no native app and no app store. |
 | **What it needs** | Nothing else to start. Optional: an AI key (Anthropic, OpenAI-compatible or the Codex CLI) for summaries and Hot, and a SocialData key for X. |
@@ -30,9 +30,9 @@ the news and serves the app you read it in.
 ## Why Stillfeed
 
 - **Save time.** About 70 blogs, 50 YouTube channels, 9 news aggregators and 410 X accounts arrive in one
-  feed. What you have seen leaves, so every visit shows only what is new.
-- **Never miss what matters.** Hot picks a handful of items each day against your own description of your
-  interests, and tells you why each one matters to you.
+  feed. Hide seen clears the items you have reviewed when you choose, with Undo.
+- **Never miss what matters.** Hot selects items against your interests and explains why each one matters.
+  Edit your interests in settings; useful articles qualify without a fixed number of picks.
 - **Read less, understand more.** Articles, video transcripts and X Articles open as clean text with a
   three-point AI summary in the language you choose.
 - **Use the AI you want.** Anthropic, any OpenAI-compatible API (including local models through Ollama),
@@ -47,7 +47,7 @@ It is fast on a phone: the first load is about 110 KB, and the app scores 100 in
 1. **Connect your sources.** Start with the curated defaults, add any feed, website or YouTube channel by
    its address, and follow X accounts by handle.
 2. **Stillfeed filters and ranks.** Every two hours it collects new items, keeps those about AI and data
-   engineering, and picks Hot against your interests.
+   engineering. A background worker selects Hot against your interests.
 3. **Read and get summaries.** Open an item for its clean text and summary. Save what you want to keep.
 
 ![How Stillfeed works: sources flow into a collection that filters and ranks them, everything is stored in one SQLite file, a background reader prepares texts and summaries, and the web app reads from SQLite. An AI provider is optional.](docs/assets/stillfeed-architecture.png)

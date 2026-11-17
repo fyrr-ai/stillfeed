@@ -1,6 +1,6 @@
 import {config} from './config';
 import {Preparation} from './preparation';
-import {Hot,modelPicker,readInterests} from './hot';
+import {readInterests} from './interests';
 import {Suggestions,modelRater} from './suggest';
 import {Store,hash,canonical,type RecordData} from './store';
 import {parseFeed} from './feeds';
@@ -65,8 +65,6 @@ export async function collect(store:Store,app:string,options:{noX?:boolean;noWeb
     new Preparation(store).enqueueCurrent();
     console.error(`timing ingest ${((Date.now()-started)/1000).toFixed(1)}s`);
     const payload={statuses:web.statuses};
-    // Hot is a bonus: a failed pick never fails the collection, the previous picks stay.
-    if(!options.noModel)await refreshHot(store,false,result.revision).catch(error=>console.error('Hot selection skipped:',error instanceof Error?error.message:error));
     if(!options.noModel)await refreshSuggestions(store).catch(error=>console.error('Source suggestions skipped:',error instanceof Error?error.message:error));
     if(xSuccess&&!options.noX&&process.env.SOCIALDATA_API_KEY)store.setMeta('xLastFetch',String(now/1000));
     store.setMeta('collectionStatus',JSON.stringify({rss:first.filter(r=>!r.error).length,failed:first.filter(r=>r.error).length+payload.statuses.filter(s=>!s.ok).length,webs:payload.statuses,x:options.noX?'not_requested':!process.env.SOCIALDATA_API_KEY?'not_configured':xSuccess?'ok':'failed'}));
@@ -76,18 +74,10 @@ export async function collect(store:Store,app:string,options:{noX?:boolean;noWeb
 }
 
 export const interestsPath=()=>config.interests;
-/** Hourly refreshes would otherwise spend a model call on an unchanged archive: pick only after new data. */
-export async function refreshHot(store:Store,force=false,sinceRevision=Number(store.meta('revision')||0)){
-  // created_revision marks articles first seen by the latest collection; no new AI article, no new pick.
-  const fresh=(store.db.query('SELECT COUNT(*) AS n FROM articles WHERE ai=1 AND created_revision>=?').get(sinceRevision) as {n:number}).n;
-  if(!force&&!fresh){console.error('Hot: no new AI updates, skipped');return [];}
-  const picks=await new Hot(store).refresh(await readInterests(interestsPath()),modelPicker);
-  console.error(`Hot: ${picks.length} new pick(s)`);return picks;
-}
 /** Suggestions change slowly; once a day is enough even with hourly refreshes. */
 export async function refreshSuggestions(store:Store,force=false){
   if(!force&&Date.now()-Number(store.meta('suggestionsAt')||0)<20*3600000){console.error('Suggestions: refreshed today, skipped');return [];}
-  const kept=await new Suggestions(store).refresh(await readInterests(interestsPath()),modelRater);
+  const kept=await new Suggestions(store).refresh(await readInterests(interestsPath(),store),modelRater);
   store.setMeta('suggestionsAt',String(Date.now()));
   console.error(`Suggestions: ${kept.length} source(s)`);return kept;
 }

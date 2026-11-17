@@ -1,9 +1,10 @@
+import type { Personal } from '../src/personal';
 import type { Article, Filters } from '../src/store';
 import { t } from './i18n';
 
 export type { Article };
 export type Feed = { items: Article[]; total: number; unseen: number; dismissed: string[]; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
-export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
+export type Preferences = { view: 'hot' | 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
 export type Position = { id: string; offset: number };
 export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; legacyDismissals?: string[] };
 export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
@@ -14,8 +15,8 @@ export type XAccount = { handle: string; name?: string; enabled: boolean };
 /** Server configuration as reported by GET /api/config: status only, never secrets. */
 export type Config = { language: string; ai: { provider: 'anthropic' | 'openai' | 'codex' | null; model: string | null }; x: { configured: boolean } };
 export type Summary = { points: string[]; model?: string; language?: string };
-export type Status = { generatedAt: string; revision: number; refresh: string; importError: string | null; collection: { failed?: number | unknown[]; rss?: number }; preparation?: Record<string, number>; articles?: { total: number }; failedSources?: FailedSource[] };
-export type HotItem = Article & { reason: string };
+export type Status = { generatedAt: string; revision: number; refresh: string; importError: string | null; collection: { failed?: number | unknown[]; rss?: number }; preparation?: Record<string, number>; personal?: PersonalStatus; articles?: { total: number }; failedSources?: FailedSource[] };
+export type PersonalStatus = ReturnType<Personal['status']>;
 export type Reading = { title: string; author: string; html: string; url: string };
 
 // Visibility records seen state; dismissing rows is always an explicit action.
@@ -51,7 +52,7 @@ export function headline(value: string) { const text = document.createElement('t
 export function loadPreferences(): Preferences {
   try {
     const saved = JSON.parse(localStorage.getItem('stillfeed-preferences') || 'null');
-    if (saved) return { view: saved.view === 'saved' ? 'saved' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
+    if (saved) return { view: saved.view === 'saved' ? 'saved' : saved.view === 'hot' ? 'hot' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
       ...(typeof saved.savedTopic === 'string' && /^([a-f0-9]{32}|ungrouped)$/.test(saved.savedTopic) ? { savedTopic: saved.savedTopic } : {}) };
   } catch {}
   return { ...defaults };

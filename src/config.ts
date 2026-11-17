@@ -25,7 +25,7 @@ export const config = {
   state: env('STILLFEED_STATE_DIR', join(home, 'state')),
   hostname: env('STILLFEED_HOSTNAME', '127.0.0.1'),
   port: Number(env('STILLFEED_PORT', '3200')),
-  /** Plain-language description of what the reader cares about; Hot, suggestions and triage read it. */
+  /** Seed for the reader’s interests; settings overrides live in SQLite and drive Hot and source suggestions. */
   interests: env('STILLFEED_INTERESTS', join(home, 'interests.md')),
   /** Extra feeds (OPML) and X accounts (one handle per line) the user adds on top of the defaults. */
   feeds: env('STILLFEED_FEEDS', join(home, 'feeds.opml')),

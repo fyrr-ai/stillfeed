@@ -10,8 +10,8 @@ export function refreshHours(every:number,nightPause:boolean){
   const hours:number[]=[];for(let h=nightPause?5:0;h<(nightPause?23:24);h+=every)hours.push(h);return hours;
 }
 export type RecordData = Record<string, unknown>;
-export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number };
-export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null };
+export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number };
+export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null; personalReason?:string };
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,32);
 export function canonical(value: unknown): string {
   if (typeof value !== 'string') throw new Error('Article URL must be a string');
@@ -27,7 +27,7 @@ const object = (v: unknown): RecordData => v && typeof v === 'object' && !Array.
 const array = (v: unknown): RecordData[] => Array.isArray(v) ? v.map(object) : [];
 const str = (v: unknown, fallback='') => typeof v === 'string' && v.trim() ? v : fallback;
 const date = (v: unknown, fallback: number) => typeof v === 'string' && Number.isFinite(Date.parse(v)) ? Date.parse(v) : fallback;
-export function articleView(r:RecordData):Article{return {id:str(r.id),url:str(r.url),title:str(r.title),source:str(r.source),host:str(r.host),kind:r.kind==='x'?'x':'article',publishedAt:Number(r.sort_at),ai:Boolean(r.ai),seen:Boolean(r.seen_at),saved:Boolean(r.saved_at),tweet:r.tweet?object(JSON.parse(String(r.tweet))):null};}
+export function articleView(r:RecordData):Article{return {id:str(r.id),url:str(r.url),title:str(r.title),source:str(r.source),host:str(r.host),kind:r.kind==='x'?'x':'article',publishedAt:Number(r.sort_at),ai:Boolean(r.ai),seen:Boolean(r.seen_at),saved:Boolean(r.saved_at),tweet:r.tweet?object(JSON.parse(String(r.tweet))):null,...(r.personal_reason?{personalReason:String(r.personal_reason)}:{})};}
 export class Store {
   db: Database;
   constructor(readonly directory: string) {
@@ -52,6 +52,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,created INTEGER NOT NULL,revision INTEGER NOT NULL,filters TEXT NOT NULL,total INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batch_items(batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,article_id TEXT NOT NULL REFERENCES articles(id),PRIMARY KEY(batch_id,ordinal));
       CREATE TABLE IF NOT EXISTS feed_queue(article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS personal_ratings(article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,profile TEXT NOT NULL,score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 3),reason TEXT NOT NULL,at INTEGER NOT NULL,model TEXT NOT NULL,PRIMARY KEY(article_id,profile));
+      CREATE INDEX IF NOT EXISTS personal_rating_profile ON personal_ratings(profile,score,article_id);
       CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(article_id UNINDEXED,title,source,body,tokenize='unicode61');
       CREATE TABLE IF NOT EXISTS x_accounts(handle TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS seeded(key TEXT PRIMARY KEY);
@@ -64,6 +66,10 @@ export class Store {
     if(!this.meta('feedQueueMigrated'))this.db.transaction(()=>{
       this.db.exec("INSERT OR IGNORE INTO feed_queue SELECT DISTINCT i.article_id FROM batch_items i JOIN batches b ON b.id=i.batch_id WHERE COALESCE(json_extract(b.filters,'$.savedOnly'),0)=0");
       this.setMeta('feedQueueMigrated','1');
+    })();
+    if(!this.meta('personalHotMigrated'))this.db.transaction(()=>{
+      this.db.exec('DROP TABLE IF EXISTS hot_picks; DROP TABLE IF EXISTS hot_dismissed; DROP TABLE IF EXISTS opened;');
+      this.setMeta('personalHotMigrated','1');
     })();
   }
   meta(key: string) { return (this.db.query('SELECT value FROM meta WHERE key=?').get(key) as {value:string}|null)?.value; }
@@ -103,7 +109,8 @@ export class Store {
   /** Marks every not-yet-seen article of a feed batch as seen and returns exactly those ids, so Undo can revert them. */
   markBatch(batchId: string): string[] {
     return this.db.transaction(()=> {
-      const ids=(this.db.query('SELECT b.article_id AS id FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) ORDER BY b.ordinal').all(batchId) as {id:string}[]).map(r=>r.id);
+      const ids=(this.db.query(`SELECT b.article_id AS id FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id)
+        AND NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id) ORDER BY b.ordinal`).all(batchId) as {id:string}[]).map(r=>r.id);
       const insert=this.db.query('INSERT OR IGNORE INTO seen VALUES(?,?)'),now=Date.now();
       for(const id of ids)insert.run(id,now);
       return ids;
@@ -149,7 +156,7 @@ export class Store {
     const tables=new Set((this.db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as {name:string}[]).map(t=>t.name));
     this.db.transaction(()=>{
       this.db.query('DELETE FROM batches WHERE created<?').run(now-7*86400000);
-      for(const table of ['seen','article_sources','feed_entries','reader_jobs','article_content','article_summaries','search','hot_picks','opened','hot_dismissed'])if(tables.has(table))this.db.query(`DELETE FROM ${table} WHERE article_id IN (${candidate})`).run(...bindings);
+      for(const table of ['seen','article_sources','feed_entries','reader_jobs','article_content','article_summaries','search'])if(tables.has(table))this.db.query(`DELETE FROM ${table} WHERE article_id IN (${candidate})`).run(...bindings);
       this.db.query(`DELETE FROM articles WHERE id IN (${candidate})`).run(...bindings);
       this.db.query('DELETE FROM model_decisions WHERE at<?').run(stale/1000);
     })();
@@ -162,6 +169,7 @@ export class Store {
       batch=this.db.query('SELECT * FROM batches WHERE id=?').get(batchId) as typeof batch;
       if(!batch)throw new Error('View expired. Refresh to continue.');
     } else {
+      if(filters.personalOnly)filters={...filters,personalProfile:this.meta('personalProfile')||'',personalRevision:Number(this.meta('personalRevision')||0)};
       const revision=filters.revision || Number(this.meta('revision')||0);
       const generated=date(this.meta('generatedAt'),Date.now());
       const cutoff=generated-filters.hours*3600000, before=filters.seenBefore||Date.now();
@@ -175,11 +183,16 @@ export class Store {
         else {conditions.push('EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id AND t.topic_id=?)');values.push(filters.savedTopic);}
       }
       if(filters.scope==='ai'&&!filters.savedOnly)conditions.push('a.ai=1');
+      if(filters.personalOnly&&!filters.savedOnly){
+        conditions.push('EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=? AND p.score>=2)');values.push(filters.personalProfile!);
+      }
       if(filters.kind!=='all'){conditions.push('a.kind=?');values.push(filters.kind);}
       if(filters.hideSeen){conditions.push('(v.at IS NULL OR v.at>?)');values.push(before);}
       const tokens=filters.q.match(/[\p{L}\p{N}_]+/gu)?.slice(0,20)||[];
       if(tokens.length){conditions.push('a.id IN (SELECT article_id FROM search WHERE search MATCH ?)');values.push(tokens.map(t=>'"'+t+'"*').join(' AND '));}
-      const ids=this.db.query(`SELECT a.id FROM articles a LEFT JOIN seen v ON v.article_id=a.id WHERE ${conditions.join(' AND ')} ORDER BY ${filters.savedOnly?'(SELECT at FROM saved WHERE article_id=a.id)':'a.sort_at'} DESC,a.id DESC`).all(...values) as {id:string}[];
+      const personalOrder=filters.personalOnly&&!filters.savedOnly?'(SELECT score FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) DESC,':'';
+      if(personalOrder)values.push(filters.personalProfile!);
+      const ids=this.db.query(`SELECT a.id FROM articles a LEFT JOIN seen v ON v.article_id=a.id WHERE ${conditions.join(' AND ')} ORDER BY ${personalOrder}${filters.savedOnly?'(SELECT at FROM saved WHERE article_id=a.id)':'a.sort_at'} DESC,a.id DESC`).all(...values) as {id:string}[];
       batch={id:randomUUID(),created:before,revision,filters:JSON.stringify(filters),total:ids.length};
       this.db.transaction(()=> {
         this.db.query('DELETE FROM batches WHERE created<?').run(Date.now()-7*86400000);
@@ -190,10 +203,12 @@ export class Store {
         if(!filters.savedOnly){const enqueue=this.db.query('INSERT OR IGNORE INTO feed_queue VALUES(?)');ids.forEach(row=>enqueue.run(row.id));}
       })();
     }
-    const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT 30`).all(batch.id,offset) as RecordData[];
+    const frozenFilters=JSON.parse(batch.filters) as Filters;
+    const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at,(SELECT reason FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) AS personal_reason FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT 30`).all(frozenFilters.personalOnly?frozenFilters.personalProfile||'':'',batch.id,offset) as RecordData[];
     const items:Article[]=rows.map(articleView);
-    const unseen=(this.db.query('SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) AND (? OR NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id))').get(batch.id,Number(Boolean(JSON.parse(batch.filters).savedOnly))) as {n:number}).n;
-    const dismissed=JSON.parse(batch.filters).savedOnly?[]:(this.db.query('SELECT b.article_id AS id FROM batch_items b JOIN feed_dismissals d ON d.article_id=b.article_id WHERE b.batch_id=?').all(batch.id) as {id:string}[]).map(row=>row.id);
+    const hiddenCondition=frozenFilters.savedOnly?'0':'EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)';
+    const unseen=(this.db.query(`SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) AND NOT ${hiddenCondition}`).get(batch.id) as {n:number}).n;
+    const dismissed=(this.db.query(`SELECT b.article_id AS id FROM batch_items b WHERE b.batch_id=? AND ${hiddenCondition}`).all(batch.id) as {id:string}[]).map(row=>row.id);
     return {items,total:batch.total,unseen,dismissed,batch:batch.id,seenBefore:batch.created,revision:batch.revision,filters:JSON.parse(batch.filters),next:offset+items.length<batch.total?offset+items.length:null,generatedAt:this.meta('generatedAt')};
   }
   close(){this.db.close();}

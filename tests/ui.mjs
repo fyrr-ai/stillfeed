@@ -260,16 +260,31 @@ try{
   await p.unroute('**/api/article/*/content');
   if(width===390){
     const picks=sql('SELECT id FROM articles WHERE ai=1 AND sort_at>? ORDER BY sort_at DESC LIMIT 2',[Date.now()-40*3600000]).map(r=>r[0]);
-    const pickedAt=Date.now();for(const [i,a] of picks.entries()){sql('DELETE FROM opened WHERE article_id=?',[a]);sql('INSERT OR REPLACE INTO hot_picks VALUES(?,?,?,?)',[a,'Důvod '+i,pickedAt-i,'test']);}
-    await reveal();await p.locator('#viewHot').click();await p.locator('#hot .hot-item').first().waitFor();
-    check('Hot shows the picks with their reasons',picks.length===2&&await p.locator('#hot .hot-item').count()===2&&await p.locator('#hot .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
-    await sleep(1500);await p.reload();await p.locator('#hot .hot-item').first().waitFor();check('Hot items do not leave by being on screen or after a reload',await p.locator('#hot .hot-item').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
-    const dismissed=p.waitForResponse(r=>/\/api\/article\/[a-f0-9]{32}\/hot$/.test(r.url())&&r.request().method()==='POST');await p.locator('#hot .card-note-dismiss').first().click();await dismissed;await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===1);check('dismissing removes a Hot item for good',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===1);
-    await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#hot .hot-item').length===2);check('Undo brings a dismissed Hot item back',sql('SELECT COUNT(*) FROM hot_dismissed')[0][0]===0);
-    const openedPost=p.waitForResponse(r=>/\/api\/article\/[a-f0-9]{32}\/opened$/.test(r.url())&&r.request().method()==='POST');
-    await p.locator('#hot .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await openedPost;await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
-    check('opening a Hot item takes it off the list and returns to Hot',await p.locator('#hot .hot-item').count()===1&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true'&&sql('SELECT COUNT(*) FROM opened WHERE article_id=?',[picks[0]])[0][0]===1);
-    await p.locator('#viewFeed').click();await p.locator('#feedView').waitFor({state:'visible'});
+    const profile=sql("SELECT value FROM meta WHERE key='personalProfile'")[0][0];
+    for(const [i,id] of picks.entries())sql('INSERT OR REPLACE INTO personal_ratings VALUES(?,?,?,?,?,?)',[id,profile,3-i,'Důvod '+i,Date.now(),'test']);
+    await p.evaluate(()=>sessionStorage.removeItem('stillfeed-session-hot'));
+    await reveal();await p.locator('#viewHot').click();await p.locator('#feed .card-note').first().waitFor();
+    check('Hot shows personal matches with their reasons',await p.locator('#feed .feed-card').count()===2&&await p.locator('#feed .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
+    check('Hot has no count badge',await p.locator('#viewHot .tab-count').count()===0);
+    await sleep(1500);await p.reload();await p.locator('#feed .card-note').first().waitFor();check('seen Hot items stay visible after reload',await p.locator('#feed .feed-card').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
+    check('Hot offers no separate dismissal control',await p.locator('.card-note-dismiss').count()===0);
+    await p.locator('#feed .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
+    check('opening a Hot item keeps it in the current batch',await p.locator('#feed .feed-card').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
+    await request('/api/seen',{ids:picks,seen:true});await p.reload();await p.locator('#feed .card-note').first().waitFor();
+    await p.locator('#readCount').click();await p.locator('#hideViewed').click();await p.waitForFunction(()=>document.querySelector('#readCount')?.textContent==='0/0');
+    check('Hide seen from Hot hides the same items from Feed',sql('SELECT COUNT(*) FROM feed_dismissals WHERE article_id IN (?,?)',picks)[0][0]===2);
+    await p.getByRole('button',{name:'Undo',exact:true}).click();await p.locator('#feed .card-note').first().waitFor();
+    check('Undo restores the Hot batch and its count',(await p.locator('#readCount').innerText()).trim()==='2/2');
+    const originalInterests=(await request('/api/personal')).interests;
+    await p.locator('.hot-intro button').click();await p.locator('#optionsSheet').waitFor({state:'visible'});
+    await p.getByRole('button',{name:'Your interests',exact:true}).click();await p.locator('#hotInterests').waitFor();await p.locator('#hotInterests').fill('Database storage engines and query execution.');
+    await p.locator('#saveInterests').click();await p.getByText('Interests saved. Hot is being updated.',{exact:true}).waitFor();
+    check('interests are saved in SQLite',(await request('/api/personal')).interests==='Database storage engines and query execution.');
+    await close();check('editing interests keeps the current Hot snapshot stable',await p.locator('#feed .feed-card').count()===2);
+    await p.locator('#newUpdates').click();await p.waitForFunction(()=>document.querySelector('#readCount')?.textContent==='0/0');
+    check('new interests wait for their own ratings',await p.locator('#feed .feed-card').count()===0);
+    await request('/api/personal',{interests:originalInterests});
+    await p.locator('#viewFeed').click();await p.waitForFunction(()=>document.querySelector('#viewFeed').getAttribute('aria-pressed')==='true');await p.locator('#feed .feed-card').first().waitFor();
   }
   // Sources: its own page (/sources) opened from one drawer row; Back returns to the same place in the feed.
   const sourcesPage=async()=>{await open();await p.locator('#openSources').click();await p.locator('#sourcesPage .source-item').first().waitFor();await p.locator('#optionsSheet').waitFor({state:'hidden'});};

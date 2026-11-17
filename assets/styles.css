@@ -98,7 +98,7 @@ button:focus-visible, a:focus-visible, .switch:focus-visible, input:focus-visibl
 [hidden] { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 ::selection { background: var(--gray-400); color: #fff; }
-.mono, time, .metrics, .tab-count, .read-count, .side-facts dd, .side-number { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.mono, time, .metrics, .read-count, .side-facts dd, .side-number { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 svg { flex: none; }
 .spinning { animation: spin 1.2s linear infinite; }
@@ -124,18 +124,18 @@ svg { flex: none; }
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--space-1); width: 100%; max-width: var(--column); min-height: 48px; margin: 0 auto; padding: env(safe-area-inset-top) var(--space-1) 0 var(--space-2); background: color-mix(in srgb, var(--app-bg) 80%, transparent); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: transform .2s ease; }
 /* Tabs like the Vercel dashboard: quiet labels, a hover pill, a 2 px underline on the active one. */
 .view-tabs { display: flex; flex: 0 1 auto; align-self: stretch; gap: 0; min-width: 0; }
-.view-tabs button { position: relative; flex: none; min-height: 48px; padding: 0 var(--space-3); border: 0; background: none; color: var(--text-low); font-size: var(--text-label); font-weight: 500; letter-spacing: -.005em; transition: color .12s ease; }
+.view-tabs button { position: relative; flex: none; min-height: 48px; padding: 0 12px; border: 0; background: none; color: var(--text-low); font-size: 13px; font-weight: 500; letter-spacing: -.005em; transition: color .12s ease; }
 .view-tabs button::before { content: ''; position: absolute; inset: 8px 4px; border-radius: var(--radius-sm); background: transparent; transition: background-color .12s ease; }
 .view-tabs button:hover { color: var(--text-high); }
 .view-tabs button:hover::before { background: var(--gray-alpha-100); }
 .view-tabs button > * { position: relative; }
 .view-tabs button[aria-pressed=true] { color: var(--text-high); }
 .view-tabs button[aria-pressed=true]::after { content: ''; position: absolute; bottom: -1px; left: var(--space-2); width: calc(100% - 2 * var(--space-2)); height: 2px; background: var(--text-high); }
-.view-tabs .tab-count { position: relative; display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--subtle-bg); color: var(--text-low); font-size: 11px; font-weight: 500; vertical-align: 2px; }
-.view-tabs button[aria-pressed=true] .tab-count { color: var(--text-high); }
-.top-actions { display: flex; align-items: center; margin-left: auto; }
+.top-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.top-actions > .icon-button, .top-actions > [data-slot=drawer-trigger] { width: 40px; min-width: 40px; padding-inline: 0; }
+.top-actions > button:not(.read-count) > svg { width: 18px; height: 18px; }
 /* Read / total in the current snapshot: quiet mono, grows as you read. */
-.read-count { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 8px; margin-right: 8px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 8px; margin-right: 2px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .read-count:hover, .read-count[aria-expanded=true] { background: var(--gray-alpha-100); color: var(--text-high); }
 
 /* ── Feed ───────────────────────────────────────────────────────────────────────────────────── */
@@ -238,10 +238,6 @@ button.photo { cursor: zoom-in; }
 .card-note > div { flex: 1; min-width: 0; }
 .card-note-label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-high); font-size: var(--text-mono); font-weight: 500; letter-spacing: .01em; }
 .card-note p { margin: 3px 0 0; color: var(--text-low); font-size: var(--text-caption); line-height: 1.45; }
-.card-note-dismiss { flex: none; min-width: 34px; min-height: 34px; margin: -4px 0; }
-.hot-item { border-bottom: 1px solid var(--border-subtle); }
-.hot-item .feed-card { border-top: 0; }
-.hot-note { padding: var(--space-4); }
 
 /* Footer, empty states, first run. */
 .feed-footer { padding: var(--space-4) 0 var(--space-6); border-top: 1px solid var(--border-subtle); color: var(--text-mid); font-size: var(--text-caption); text-align: center; }
@@ -579,3 +575,9 @@ button.photo { cursor: zoom-in; }
 .seen-actions { width: max-content; max-width: calc(100vw - 24px); }
 .batch-count-label { display: block; padding: 4px 6px 10px; color: var(--text-low); font-size: var(--text-mono); font-weight: 400; }
 @media (max-width: 380px) { .view-tabs button { padding-inline: 8px; } .read-count { padding-inline: 4px; margin-right: 4px; } }
+
+.hot-intro { padding: 14px 16px; font-size: 13px; color: var(--text-low); border-bottom: 1px solid var(--border-subtle); }
+.hot-intro button { margin-left: 8px; color: var(--text-high); text-decoration: underline; }
+.hot-intro p { margin: 6px 0 0; font-size: 12px; }
+.interests-editor { display: grid; gap: 10px; }
+.interests-editor textarea { width: 100%; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--app-bg); color: var(--text-high); font: inherit; font-size: 13px; }

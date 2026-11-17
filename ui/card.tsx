@@ -72,7 +72,7 @@ function Preview({ article }: { article: Article }) {
 
 const formatIcons: Record<string, IconName> = { article: 'article', video: 'video', reddit: 'reddit' };
 
-export type CardNote = { label: string; text: string; onDismiss?: () => void };
+export type CardNote = { label: string; text: string };
 export const Card = memo(function Card({ article, seen, busy, inThread = false, actions, note }: { article: Article; seen: boolean; busy: boolean; inThread?: boolean; actions: CardActions; note?: CardNote }) {
   const tweet = article.tweet as Record<string, any> | null;
   const isX = article.kind === 'x';
@@ -111,7 +111,6 @@ export const Card = memo(function Card({ article, seen, busy, inThread = false, 
       </header>
       {note && <aside className="card-note" aria-label={note.label}>
         <div><span className="card-note-label"><Icon name="flame" size={13} />{note.label}</span><p>{note.text}</p></div>
-        {note.onDismiss && <button className="icon-button card-note-dismiss" aria-label={t('hot.dismiss')} title={t('hot.dismiss')} onClick={note.onDismiss}><Icon name="close" size={15} /></button>}
       </aside>}
       {isX ? <>
         <div className="post-text" onClick={event => { if ((event.target as Element).closest('a')) actions.opened(article.id); }}><RichText text={tweet?.text || article.title} links={tweet?.links} drop={tweet?.drop} /></div>

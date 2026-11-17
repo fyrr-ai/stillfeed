@@ -44,7 +44,6 @@ export const en = {
   'tabs.hot': 'Hot',
   'tabs.feed': 'Feed',
   'tabs.saved': 'Saved',
-  'tabs.count': '{n} items',
   'options.open': 'Feed options',
   'options.close': 'Close options',
 
@@ -105,15 +104,19 @@ export const en = {
   'setup.dismiss': 'Hide setup',
 
   // Hot
-  'hot.label': 'Hot',
-  'hot.loading': 'Loading…',
-  'hot.empty.title': 'Nothing hot right now',
-  'hot.empty.text': 'After each refresh, the few things you should not miss are picked here.',
+  'hot.description': 'Selected for your interests',
+  'hot.editInterests': 'Edit interests',
+  'hot.interests': 'Your interests',
+  'hot.interests.hint': 'What do you want to keep up with? Be specific about topics and what to skip.',
+  'hot.interests.save': 'Update Hot',
+  'hot.interests.saving': 'Saving…',
+  'hot.interests.saved': 'Interests saved. Hot is being updated.',
+  'hot.preparing': 'Selecting · {rated}/{total} reviewed',
+  'hot.ready': 'Selection ready · hide seen when you are ready',
+  'hot.noAI': 'Connect an AI provider in settings to select articles.',
+  'hot.failed': 'Selection paused. Retrying shortly; existing matches stay available.',
+  'hot.newSelection': 'Show updated selection',
   'hot.why': 'Why it matters',
-  'hot.dismiss': 'Not interested',
-  'hot.removed': 'Removed from Hot',
-  'hot.undo': 'Undo',
-  'hot.error': 'Could not update Hot',
 
   // Cards
   'card.save': 'Save for later',

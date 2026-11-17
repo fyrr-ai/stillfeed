@@ -5,9 +5,11 @@ import { DrawerClose, DrawerTitle } from '@ui-sdk/react/drawer';
 import { Input, InputClear, InputGroup } from '@ui-sdk/react/input';
 import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } from '@ui-sdk/react/segmented-control';
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
+import { Textarea } from '@ui-sdk/react/textarea';
 import { Icon, type IconName } from './icons';
 import { languageName, t, type Key } from './i18n';
 import type { Config, FailedSource, Preferences, Settings } from './lib';
+import { api } from './lib';
 import { attentionText, type SourcesSummary } from './source-rows';
 
 export type SidebarStatus = { updated: string; rss: number; failed: FailedSource[]; preparation: Record<string, number> | null; importError: boolean; stored: number | null; revision: number | null };
@@ -20,7 +22,8 @@ export type SidebarProps = {
   sources: SourcesSummary | null; openSources: () => void;
   /** undefined while loading, null when the server has no /api/config yet. */
   config: Config | null | undefined;
-  /** The feed view's unseen / total; hidden on Hot and Saved. */
+  interestsChanged: () => void;
+  /** The current feed's unseen / total; hidden on Saved. */
   counts: { unseen: number; total: number } | null;
   markAll: () => void; onConfirmOpen: (open: boolean) => void; onConfirmSettled: () => void;
 };
@@ -67,8 +70,24 @@ function AIStatus({ config }: { config: Config | null | undefined }) {
   </dl>;
 }
 
-/** The sidebar: every control applies at once, so there is nothing to save. */
-export function Sidebar({ prefs, query, setQuery, change, settings, applySettings, status, refreshing, refresh, sources, openSources, config, counts, markAll, onConfirmOpen, onConfirmSettled }: SidebarProps) {
+function Interests({changed}:{changed:()=>void}) {
+  const [text,setText]=useState(''),[initial,setInitial]=useState<string|null>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
+  useEffect(()=>{let active=true;void api<{interests:string}>('/api/personal').then(data=>{if(active){setText(data.interests);setInitial(data.interests);}}).catch(error=>{if(active)setNotice(message(error,'error.load'));});return()=>{active=false;};},[]);
+  async function save(){
+    setBusy(true);setNotice('');
+    try{const data=await api<{interests:string}>('/api/personal',{interests:text});setText(data.interests);setInitial(data.interests);setNotice(t('hot.interests.saved'));changed();}
+    catch(error){setNotice(message(error,'error.save'));}finally{setBusy(false);}
+  }
+  return <div className="interests-editor">
+    <label htmlFor="hotInterests" className="field-help">{t('hot.interests.hint')}</label>
+    <Textarea id="hotInterests" aria-label={t('hot.interests')} value={text} onValueChange={setText} maxLength={4000} rows={6} disabled={initial===null||busy} />
+    <button id="saveInterests" className="secondary-button" disabled={initial===null||busy||!text.trim()||text===initial} onClick={()=>void save()}>{t(busy?'hot.interests.saving':'hot.interests.save')}</button>
+    {notice&&<p className="field-help" role="status">{notice}</p>}
+  </div>;
+}
+
+/** Filters apply immediately; editing interests uses one explicit save before rerating. */
+export function Sidebar({ prefs, query, setQuery, change, settings, applySettings, status, refreshing, refresh, sources, openSources, config, interestsChanged, counts, markAll, onConfirmOpen, onConfirmSettled }: SidebarProps) {
   const [days, setDays] = useState(String(settings.windowHours / 24));
   const [retention, setRetention] = useState(String(settings.retentionDays));
   const [error, setError] = useState('');
@@ -107,6 +126,7 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
 
       <Section id="ai" title={t('settings.ai')} icon="sparkles">
         <AIStatus config={config} />
+        <Disclosure label={t('hot.interests')}><Interests changed={interestsChanged} /></Disclosure>
       </Section>
 
       <Section id="refresh" title={t('settings.refresh')} icon="refresh">

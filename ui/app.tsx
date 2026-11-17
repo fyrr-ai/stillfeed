@@ -24,7 +24,7 @@ const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdle
 const prefetch = () => Promise.all([loadChrome(), loadDetail(), loadSidebar(), loadSources()]);
 import {
   api, COMMIT, defaults, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
-  type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
+  type Article, type Config, type Feed, type PersonalStatus, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
 } from './lib';
 
 const detailPath = /^\/(article|post)\/([a-f0-9]{32})$/;
@@ -50,15 +50,6 @@ function hint(label: string | null, distance = 0, mode: 'back' | 'pull' = 'pull'
 
 const OptionsDrawer = lazy(() => loadChrome().then(m => ({ default: m.OptionsDrawer })));
 const Toasts = lazy(() => loadChrome().then(m => ({ default: m.Toasts })));
-
-/** Hot: a few must-not-miss picks with the reason; they leave only when opened or dismissed. */
-function HotList({ items, loading, actions, dismiss }: { items: HotItem[]; loading: boolean; actions: CardActions; dismiss: (item: HotItem) => void }) {
-  if (!items.length) return loading ? <p className="field-help hot-note">{t('hot.loading')}</p> : <section className="empty" id="hotEmpty"><span className="empty-glyph" aria-hidden="true"><Icon name="flame" size={26} /></span><h2>{t('hot.empty.title')}</h2>
-    <p>{t('hot.empty.text')}</p></section>;
-  return <section id="hot" aria-label={t('hot.label')}>{items.map(item => <div key={item.id} className="hot-item">
-    <Card article={item} seen={item.seen} busy={false} actions={actions} note={{ label: t('hot.why'), text: item.reason, onDismiss: () => dismiss(item) }} />
-  </div>)}</section>;
-}
 
 export function App() {
   const [prefs, setPrefsState] = useState(loadPreferences);
@@ -86,7 +77,7 @@ export function App() {
   /** A toast mounts the toast region first if its module has not arrived yet. */
   const notify: typeof toast = (text, options) => { setChromeReady(true); toast(text, options); };
   // Until the drawer's code is here, the menu is a plain button that loads it.
-  const menuButton = <button id="optionsButton" className="icon-button" aria-label={t('options.open')} title={t('options.open')} aria-haspopup="dialog" onClick={() => openOptions()}><Icon name="menu" /></button>;
+  const menuButton = <button id="optionsButton" className="icon-button" aria-label={t('options.open')} title={t('options.open')} aria-haspopup="dialog" onClick={() => openOptions()}><Icon name="menu" size={18} /></button>;
   // UI SDK's drawer and toasts mount once their module is here (idle prefetch, a toast, or the menu button).
   const [chromeReady, setChromeReady] = useState(false);
   const [settings, setSettingsState] = useState<Settings>({ windowHours: 72, refreshEvery: 2, nightPause: true, retentionDays: 30 });
@@ -96,9 +87,7 @@ export function App() {
   const [counterOpen, setCounterOpen] = useState(false);
   const [hidingViewed, setHidingViewed] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
-  const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && location.pathname === '/');
-  const [hot, setHot] = useState<HotItem[]>([]);
-  const [hotLoading, setHotLoading] = useState(true);
+  const [personal, setPersonal] = useState<PersonalStatus | null>(null);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
   const [unseen, setUnseen] = useState(0);
 
@@ -107,8 +96,8 @@ export function App() {
     prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
-    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
-    /** Articles opened in the current snapshot: they stay out of it, also after a restore. */
+    timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0,
+    /** Explicitly hidden rows in the active snapshot. */
     collapsed: new Set<string>(),
   }).current;
   const counterOpenRef = useRef(false); counterOpenRef.current = counterOpen;
@@ -134,7 +123,7 @@ export function App() {
   };
 
   // Seen means "was on screen for a second", never while options or the detail cover the feed.
-  const unobscured = () => !document.hidden && !r.optionsOpen && !r.chatOpen && !counterOpenRef.current && !r.confirmOpen && !r.hotOpen && !covered();
+  const unobscured = () => !document.hidden && !r.optionsOpen && !r.chatOpen && !counterOpenRef.current && !r.confirmOpen && !covered();
   const observer = useMemo(() => new IntersectionObserver(entries => {
     for (const entry of entries) {
       const node = entry.target as HTMLElement, id = node.dataset.id!;
@@ -192,7 +181,7 @@ export function App() {
       else if (append && r.feed) { params.set('batch', r.feed.batch); params.set('offset', String(r.feed.next || 0)); }
       else {
         const p = r.prefs;
-        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', '0');
+        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('personal', p.view === 'hot' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', '0');
         if (p.view === 'saved' && p.savedTopic) params.set('topic', p.savedTopic);
         // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
         if (r.feed && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
@@ -204,7 +193,7 @@ export function App() {
       // Commit synchronously: restoring a position measures the rows right after this call.
       r.collapsed = new Set(result.dismissed ?? []);
       // Only explicit dismissals leave the current snapshot.
-      const visible = r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
+      const visible = r.prefs.view !== 'saved' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
       flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
       r.pages++;
       watch(); save();
@@ -259,7 +248,7 @@ export function App() {
     } finally { r.restoring = false; if (listRef.current) listRef.current.style.visibility = 'visible'; watch(); save(); }
   }
 
-  async function switchView(view: 'feed' | 'saved') {
+  async function switchView(view: Preferences['view']) {
     if (view === r.prefs.view) return;
     save();
     const saved = loadSession('stillfeed-session-' + view);
@@ -267,33 +256,10 @@ export function App() {
     await loadView(saved, view === 'saved'); await refreshStatus();
   }
 
-  async function loadHot() {
-    try { const { items } = await api<{ items: HotItem[] }>('/api/hot'); setHot(items); } catch { /* the badge simply stays as it was */ }
-    finally { setHotLoading(false); }
-  }
-  /** Switching tabs keeps the feed mounted underneath, so its cards and scroll position survive a visit to Hot. */
-  function setHotOpen(open: boolean) {
-    if (open === r.hotOpen) return;
-    if (open) { save(); r.feedScroll = scrollY; unwatch(); }
-    r.hotOpen = open; sessionStorage.setItem('stillfeed-tab', open ? 'hot' : 'feed');
-    flushSync(() => setHotOpenState(open));
-    if (open) { window.scrollTo(0, 0); void loadHot(); } else { window.scrollTo(0, r.feedScroll); watch(); }
-  }
-  function openTab(tab: 'hot' | 'feed' | 'saved') {
+  function openTab(tab: Preferences['view']) {
     setCounterOpen(false);
-    if (tab === 'hot') return setHotOpen(true);
-    const same = tab === r.prefs.view;
-    setHotOpen(false);
-    if (!same) void switchView(tab);
+    void switchView(tab);
   }
-  async function dismissHot(item: HotItem) {
-    setHot(list => list.filter(h => h.id !== item.id));
-    try {
-      await api(`/api/article/${item.id}/hot`, { dismissed: true });
-      notify(t('hot.removed'), { action: { label: t('hot.undo'), onAction: async () => { await api(`/api/article/${item.id}/hot`, { dismissed: false }); await loadHot(); } } });
-    } catch (error) { setMessage(error instanceof Error ? error.message : t('hot.error')); void loadHot(); }
-  }
-
   /** Sidebar settings save as they change; a new feed window rebuilds the view. */
   async function applySettings(patch: Partial<Settings>) {
     const next = await api<Settings>('/api/settings', { ...r.settings, ...patch });
@@ -312,7 +278,9 @@ export function App() {
     try {
       const data = await api<Status>('/api/status');
       const refreshing = data.refresh === 'running';
-      let newUpdates = r.prefs.view !== 'saved' && r.feed !== null && r.feed.revision !== data.revision;
+      if(data.personal)setPersonal(data.personal);
+      let newUpdates = r.prefs.view === 'feed' && r.feed !== null && r.feed.revision !== data.revision;
+      if(r.prefs.view==='hot'&&r.feed&&data.personal)newUpdates ||= r.feed.filters.personalRevision !== data.personal.revision;
       if (r.refreshRequested && !refreshing) { r.refreshRequested = false; newUpdates ||= r.prefs.view === 'feed' && r.feed?.revision !== data.revision; }
       const generated = data.generatedAt ? new Date(data.generatedAt) : null;
       const failed = Array.isArray(data.failedSources) ? data.failedSources.filter(f => f && typeof f.id === 'string') : [];
@@ -352,7 +320,7 @@ export function App() {
 
   /** Explicitly dismiss only rows already seen, keeping the current snapshot and bookmarks. */
   async function hideViewed() {
-    if (!r.feed || r.prefs.view !== 'feed' || r.hidingViewed) return;
+    if (!r.feed || r.prefs.view === 'saved' || r.hidingViewed) return;
     const batch = r.feed.batch;
     r.hidingViewed = true; setHidingViewed(true);
     try {
@@ -360,7 +328,7 @@ export function App() {
       if (Object.keys(r.outbox).length) throw new Error(t('feed.syncBeforeHide'));
       const action = crypto.randomUUID();
       const result = await api<{ids: string[]}>(`/api/feed/${batch}/hide-seen`, {action});
-      if (r.feed?.batch !== batch || r.prefs.view !== 'feed') return;
+      if (r.feed?.batch !== batch) return;
       const before = r.items, y = scrollY;
       const ids = result.ids.filter(id => !r.collapsed.has(id));
       if (!ids.length) return;
@@ -382,7 +350,7 @@ export function App() {
     } finally { r.hidingViewed = false; setHidingViewed(false); }
   }
   async function discuss() {
-    const context: ChatContext | null = r.route ? {kind: 'article', id: r.route.id} : r.hotOpen ? hot.length ? {kind: 'hot', ids: hot.map(a => a.id)} : null : r.feed ? {kind: 'batch', id: r.feed.batch} : null;
+    const context: ChatContext | null = r.route ? {kind: 'article', id: r.route.id} : r.feed ? {kind: 'batch', id: r.feed.batch} : null;
     if (!context) return;
     try {
       await loadChat();
@@ -422,8 +390,6 @@ export function App() {
     flushSync(() => setRoute({ kind, id: article.id, article }));
     document.title = kind === 'post' ? t('app.title.thread') : t('app.title.article', { title: article.title });
     window.scrollTo(0, 0); mark(article.id, true);
-    setHot(list => list.filter(h => h.id !== article.id));
-    void api(`/api/article/${article.id}/opened`, {}).catch(() => {});
   }
   /** The next feed item after the open one, so reading can continue without going back. */
   const nextAfter = (id: string | undefined) => { const at = r.items.findIndex(a => a.id === id); return at >= 0 ? r.items[at + 1] ?? null : null; };
@@ -436,8 +402,7 @@ export function App() {
   }
   /** A user-requested snapshot starts at the top, keeping seen updates visible. */
   async function reloadFresh() {
-    if (r.hotOpen) return void loadHot();
-    if (covered() || r.prefs.view !== 'feed') return;
+    if (covered() || r.prefs.view === 'saved') return;
     await flush();
     setFeed(null); await getPage(false).catch(() => {}); window.scrollTo(0, 0);
   }
@@ -530,7 +495,6 @@ export function App() {
         void loadLibrary();
         setTimeout(() => idle(() => void prefetch().then(() => setChromeReady(true))), 1000);
         await settingsLoaded;
-        void loadHot();
         await refreshStatus(); void flush(); save(); await followRoute();
       } catch (error) { setMessage(error instanceof Error ? error.message : t('error.open')); setBooting(false); }
     })();
@@ -591,7 +555,7 @@ export function App() {
       if (ended.mode === 'pull' && ended.dy >= COMMIT) { void latest.current.reloadFresh(); void latest.current.refresh(); }
       if (ended.mode === 'swipe' && Math.abs(ended.dx) >= COMMIT && Math.abs(ended.dx) > Math.abs(ended.dy) * 1.5) {
         const tabs = ['hot', 'feed', 'saved'] as const;
-        const current = r.hotOpen ? 'hot' : r.prefs.view;
+        const current = r.prefs.view;
         const next = tabs[tabs.indexOf(current) + (ended.dx < 0 ? 1 : -1)];
         if (next) openTab(next);
       }
@@ -649,20 +613,20 @@ export function App() {
   const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : 'noUpdates';
   // First run: the panel leads the feed until sources, X and AI are set up, or until it is hidden.
   const setupNeeded = sourceCount === 0 || (config ? !config.ai.provider || !config.x.configured : false);
-  const showSetup = view === 'feed' && !hotOpen && !booting && setupNeeded && !setupDismissed && emptyKind !== 'noSources';
+  const showSetup = view === 'feed' && !booting && setupNeeded && !setupDismissed && emptyKind !== 'noSources';
 
   return <>
     <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null || sourcesOpen}>
       <header className="topbar">
         <nav className="view-tabs" aria-label={t('tabs.label')}>
-          <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>
-          <button id="viewFeed" aria-pressed={!hotOpen && view === 'feed'} onClick={() => openTab('feed')}>{t('tabs.feed')}</button>
-          <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
+          <button id="viewHot" aria-pressed={view === 'hot'} onClick={() => openTab('hot')}>{t('tabs.hot')}</button>
+          <button id="viewFeed" aria-pressed={view === 'feed'} onClick={() => openTab('feed')}>{t('tabs.feed')}</button>
+          <button id="viewSaved" aria-pressed={view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          {!hotOpen && view === 'feed' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
-          <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
+          {view !== 'saved' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
+          <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={!total} onClick={() => void discuss()}><Icon name="reply" size={18} /></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
@@ -672,28 +636,30 @@ export function App() {
           }}>
               <Suspense fallback={null}><Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
                 status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sources={sourcesSummary} openSources={() => openSources()}
-                config={config} counts={!hotOpen && view === 'feed' && feed ? { unseen, total } : null}
+                config={config} interestsChanged={() => void refreshStatus()} counts={view !== 'saved' && feed ? { unseen, total } : null}
                 markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()} /></Suspense>
           </OptionsDrawer></Suspense>}
         </div>
       </header>
       <main className="reader" ref={readerRef}>
-        {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
-        <div id="feedView" hidden={hotOpen}>
-        {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
+        <div id="feedView">
+        {view === 'hot' && <div className="hot-intro"><span>{t('hot.description')}</span><button className="text-button" onClick={() => openSetup('ai')}>{t('hot.editInterests')}</button>
+          {personal && <p role="status">{!personal.enabled ? t('hot.noAI') : personal.error ? t('hot.failed') : personal.pending ? t('hot.preparing', {rated:personal.rated,total:personal.total}) : t('hot.ready')}</p>}
+        </div>}
+        {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
         <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>
-        <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>
+        <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t(view === 'hot' ? 'hot.newSelection' : 'feed.newPosts')}</button>
         <p id="syncNote" className="notice" hidden={!syncFailed}>{t('feed.offline')}</p>
         <p id="message" className="notice error" role="alert" hidden={!message}>{message}</p>
         {showSetup && <SetupPanel sources={sourceCount} config={config} open={openSetup} dismiss={dismissSetup} />}
         <div id="loading" className="skeleton" aria-label={t('feed.loading')} hidden={!booting}><div></div><div></div><div></div></div>
         <section id="feed" ref={listRef} aria-label={t('feed.label')}>
-          {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} />)}
+          {items.map(article => <Card key={article.id} article={article} seen={article.seen || r.outbox[article.id] === true} busy={busy.has(article.id)} actions={actions} note={view === 'hot' && article.personalReason ? {label:t('hot.why'),text:article.personalReason} : undefined} />)}
         </section>
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
-        {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
+        {emptyKind && view !== 'hot' && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
-          {view === 'feed' && viewed > 0 && <button className="secondary-button" disabled={hidingViewed} onClick={() => void hideViewed()}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
+          {view !== 'saved' && viewed > 0 && <button className="secondary-button" disabled={hidingViewed} onClick={() => void hideViewed()}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
           <p id="endNote" hidden={!feed || feed.next !== null}>{total ? t('feed.end') : t('feed.none')}</p>

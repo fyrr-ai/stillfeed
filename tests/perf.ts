@@ -57,7 +57,7 @@ try {
   const first = await (await fetch(base + '/api/feed?scope=all&kind=all&hideSeen=0')).json() as { batch: string };
   report('next page of a snapshot', await median(() => `/api/feed?batch=${first.batch}&offset=60`), BUDGET.pageMs, 'ms');
   report('/api/status', await median(() => '/api/status'), BUDGET.statusMs, 'ms');
-  report('/api/hot', await median(() => '/api/hot'), BUDGET.hotMs, 'ms');
+  report('personal selection status', await median(() => '/api/personal'), BUDGET.hotMs, 'ms');
 
   // 3. Lighthouse, when available: the median score of three runs per form factor must be 100.
   if (process.env.LIGHTHOUSE) {

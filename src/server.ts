@@ -3,9 +3,10 @@ import { Media } from './media';
 import {Reader,readable} from './reader';
 import {Summaries} from './summary';
 import {Preparation} from './preparation';
-import {collect,seed,refreshHot,refreshSuggestions} from './collect';
+import {collect,seed,refreshSuggestions} from './collect';
 import {Suggestions} from './suggest';
-import {Hot} from './hot';
+import {Personal} from './personal';
+import {readInterests} from './interests';
 import {SavedTopics} from './saved-topics';
 import {Chats,chatContext} from './chat';
 import { join } from 'node:path';
@@ -23,13 +24,13 @@ if(args.includes('--window-hours')){console.log(store.settings().windowHours);st
 if(!store.meta('generatedAt')){store.setMeta('generatedAt',new Date().toISOString());store.setMeta('revision','0');}
 await seed(store,app);
 if(args.includes('--collect')){try{console.log(JSON.stringify(await collect(store,app,{noX:args.includes('--no-x'),noWeb:args.includes('--no-web'),noModel:args.includes('--no-model')})));}finally{store.close();}process.exit(0);}
-if(args.includes('--hot')){try{console.log(JSON.stringify(await refreshHot(store,true)));}finally{store.close();}process.exit(0);}
 if(args.includes('--suggest')){try{console.log(JSON.stringify(await refreshSuggestions(store,true)));}finally{store.close();}process.exit(0);}
 const media=new Media(directory);
 const reader=new Reader(store);
 const summaries=new Summaries(store);
 const preparation=new Preparation(store);
-const hot=new Hot(store);
+const personal=new Personal(store);
+personal.configure(await readInterests(config.interests,store));
 const suggestions=new Suggestions(store);
 const savedTopics=new SavedTopics(store);
 const chats=new Chats(store);
@@ -93,9 +94,9 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
     try {
       if(request.method==='GET') {
         if(path==='/health')return json({ok:true,version:2});
-        if(path==='/api/status')return json({generatedAt:store.meta('generatedAt'),revision:Number(store.meta('revision')),collection:JSON.parse(store.meta('collectionStatus')||'{}'),importError:null,refresh:await refreshState(),preparation:preparation.stats(),articles:store.db.query('SELECT COUNT(*) AS total FROM articles').get(),failedSources:failedSources()});
+        if(path==='/api/status')return json({generatedAt:store.meta('generatedAt'),revision:Number(store.meta('revision')),personal:personal.status(),collection:JSON.parse(store.meta('collectionStatus')||'{}'),importError:null,refresh:await refreshState(),preparation:preparation.stats(),articles:store.db.query('SELECT COUNT(*) AS total FROM articles').get(),failedSources:failedSources()});
         if(path==='/api/settings')return json(store.settings());
-        if(path==='/api/hot')return json({items:hot.list()});
+        if(path==='/api/personal')return json({interests:store.meta('personalInterests'),status:personal.status()});
         if(path==='/api/suggestions')return json({items:suggestions.list()});
         if(path==='/api/saved/topics')return json({...savedTopics.list(),enabled:Boolean(describe())});
         if(path==='/api/sources')return json(sources.list(store));
@@ -109,7 +110,7 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
           if(!['ai','all'].includes(scope)||!['all','article','x'].includes(kind))throw new Error('Unknown feed filter');
           const topic=p.get('topic');
           if(topic!==null&&(p.get('saved')!=='1'||!/^([a-f0-9]{32}|ungrouped)$/.test(topic)))throw new Error('Invalid saved topic');
-          const filters:Filters={scope:scope as Filters['scope'],kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
+          const filters:Filters={scope:scope as Filters['scope'],kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',personalOnly:p.get('personal')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
           if(topic)filters.savedTopic=topic;
           return json(store.feed(filters,p.get('batch')||undefined,integer(p.get('offset'),0,0,100000)));
         }
@@ -137,6 +138,10 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
           if(typeof value.action!=='string'||!/^[a-f0-9-]{36}$/.test(value.action))throw new Error('Invalid hide action');
           store.undoHideSeen(value.action);return json({ok:true});
         }
+        if(path==='/api/personal'){
+          if(typeof value.interests!=='string'||!value.interests.trim()||value.interests.length>4000)throw new Error('Describe your interests in 1–4000 characters');
+          personal.configure(value.interests.trim());return json({interests:store.meta('personalInterests'),status:personal.status()});
+        }
         if(path==='/api/chat')return json(chats.open(chatContext(value.context)));
         const chat=/^\/api\/chat\/([a-f0-9]{32})\/(messages|cancel|clear|retry)$/.exec(path);
         if(chat){
@@ -151,10 +156,6 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         const save=/^\/api\/article\/([a-f0-9]{32})\/saved$/.exec(path);
         if(save){if(typeof value.saved!=='boolean')throw new Error('Invalid saved state');store.save(save[1]!,value.saved);if(value.saved){savedTopics.enqueue();if(store.article(save[1]!)?.kind==='article')preparation.enqueue(save[1]!,500);}return json({saved:value.saved});}
         if(path==='/api/saved/topics/retry'){savedTopics.retry();return json({ok:true});}
-        const opened=/^\/api\/article\/([a-f0-9]{32})\/opened$/.exec(path);
-        if(opened){if(!store.article(opened[1]!))return json({error:'Unknown article'},404);hot.opened(opened[1]!);return json({ok:true});}
-        const hotState=/^\/api\/article\/([a-f0-9]{32})\/hot$/.exec(path);
-        if(hotState){if(typeof value.dismissed!=='boolean')throw new Error('Invalid hot state');if(!store.article(hotState[1]!))return json({error:'Unknown article'},404);hot.dismiss(hotState[1]!,value.dismissed);return json({dismissed:value.dismissed});}
         if(path==='/api/suggestions'){
           if(typeof value.id!=='string'||!/^[a-f0-9]{32}$/.test(value.id)||!['add','ignore'].includes(value.action))throw new Error('Invalid suggestion decision');
           suggestions.decide(value.id,value.action);return json({ok:true});
@@ -203,7 +204,12 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
   }});
 console.log(`Stillfeed ready on http://${server.hostname}:${server.port}`);
 // The reader worker prepares articles and summaries in the background; it is restarted if it stops.
-let worker:Subprocess|null=null,chatWorker:Subprocess|null=null,stopping=false;
+let worker:Subprocess|null=null,chatWorker:Subprocess|null=null,personalWorker:Subprocess|null=null,stopping=false;
+function startPersonalWorker(){
+  if(process.env.STILLFEED_NO_WORKER==='1'||stopping)return;
+  personalWorker=Bun.spawn([process.execPath,join(app,'src/personal_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
+  void personalWorker.exited.then(()=>{personalWorker=null;if(!stopping)setTimeout(startPersonalWorker,5000);});
+}
 function startChatWorker(){
   if(process.env.STILLFEED_NO_WORKER==='1'||stopping)return;
   chatWorker=Bun.spawn([process.execPath,join(app,'src/chat_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
@@ -216,8 +222,9 @@ function startWorker(){
 }
 startWorker();
 startChatWorker();
+startPersonalWorker();
 schedule();
 // A refresh missed while Stillfeed was not running (the last one is older than the interval) happens now.
 if(process.env.STILLFEED_DISABLE_SCHEDULE!=='1'&&Date.now()-Date.parse(store.meta('generatedAt')||'0')>store.settings().refreshEvery*3600000)startCollection();
-function stop(){stopping=true;clearTimeout(timer);worker?.kill();chatWorker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
+function stop(){stopping=true;clearTimeout(timer);worker?.kill();chatWorker?.kill();personalWorker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);
