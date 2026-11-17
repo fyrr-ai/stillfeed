@@ -74,9 +74,8 @@ try{
     const context=await browser.newContext({viewport:{width:composition.width,height:composition.height},deviceScaleFactor:composition.name==='stillfeed-banner'||composition.name==='stillfeed-social'?1:2});
     await context.route(url=>url.protocol!=='file:',route=>route.abort());const page=await context.newPage();await page.goto('file://'+file);await settle(page);
     if(await page.locator('img').evaluateAll(images=>images.some(img=>!(img as HTMLImageElement).naturalWidth)))throw new Error('Broken banner image');
-    if(composition.name==='stillfeed-banner'||composition.name==='stillfeed-social'){
-      if(await page.locator('.stage > .device').count()!==2||!await page.locator('.foot').evaluate(node=>node.parentElement===document.body))throw new Error('Invalid banner composition');
-    }
+    if(composition.name==='stillfeed-banner'&&(await page.locator('.cell .crop img').count()!==3||await page.locator('.stage > .device').count()!==1))throw new Error('Invalid banner composition');
+    if(composition.name==='stillfeed-social'&&(await page.locator('.stage > .device').count()!==2||!await page.locator('.foot').evaluate(node=>node.parentElement===document.body)))throw new Error('Invalid social composition');
     await page.screenshot({path:join(composition.temporary?raw:out,composition.name+'.png')});await context.close();
   }
   animate([{path:join(raw,'frame-hide-menu.png'),milliseconds:2400},{path:join(raw,'frame-hide-after.png'),milliseconds:2000},{path:join(raw,'frame-hide-undo.png'),milliseconds:1600}],join(out,'stillfeed-hide-seen.png'));

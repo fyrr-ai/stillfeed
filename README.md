@@ -11,7 +11,7 @@ Hide seen clears the posts you've reviewed. Your bookmarks stay saved.
 
 You run Stillfeed on your own server and open it in a browser, or add it to your phone's home screen as a PWA.
 
-![Stillfeed. AI news in one feed, with posts, videos and articles from the sources you follow.](docs/assets/stillfeed-banner.png)
+![Stillfeed, a personal AI news feed: Hot picks for your interests, short AI summaries and saved topics, next to the feed on a phone.](docs/assets/stillfeed-banner.png)
 
 [Quick start](#quick-start) · [Configuration](docs/configuration.md) · [Development](docs/development.md) · [MIT license](LICENSE)
 
