@@ -1,65 +1,57 @@
+![Stillfeed, a personal AI news feed: Hot picks for your interests, short AI summaries and saved topics, next to the feed on a phone.](docs/assets/stillfeed-banner.png)
+
 # Stillfeed
 
-A personal AI news feed for your phone.
+**A personal AI news feed for your phone.** Stillfeed collects posts from X, YouTube channels, RSS feeds,
+Reddit and selected news sites into one feed. With an AI provider connected, it picks posts for your
+interests and summarizes articles and videos in your language.
 
-Stillfeed collects posts from X, YouTube channels, RSS feeds and Reddit into one feed you can scroll like
-Twitter. It checks your sources on a schedule. With an AI provider connected, it picks posts based on your
-interests and prepares short summaries of articles and videos with available transcripts.
-
-Open it a few times a day, read what looks useful, and save what you want to keep. When you're done,
-Hide seen clears the posts you've reviewed. Your bookmarks stay saved.
-
-You run Stillfeed on your own server and open it in a browser, or add it to your phone's home screen as a PWA.
-
-![Stillfeed, a personal AI news feed: Hot picks for your interests, short AI summaries and saved topics, next to the feed on a phone.](docs/assets/stillfeed-banner.png)
+Open source and self-hosted. Run it on your own server and add it to your phone's home screen as a PWA.
 
 [Quick start](#quick-start) · [Configuration](docs/configuration.md) · [Development](docs/development.md) · [MIT license](LICENSE)
 
-## A quick look
+## How it works
 
-The screenshots below use example content in the actual app.
+Open it a few times a day, read what looks useful, and save what you want to keep. When you're done, Hide
+seen clears the posts you've reviewed. Your bookmarks stay saved. The screenshots use example content in
+the actual app.
 
-### Your sources in one feed
-
-Read posts, articles and videos together. Follow X accounts, add RSS feeds and YouTube channels, or subscribe
-to a subreddit's feed. Refresh runs every two hours by default; you can change the schedule in settings.
-
-<img src="docs/assets/stillfeed-feed.png" width="476" alt="The Feed tab mixes an article, a post from X and a YouTube video in the same list.">
-
-### Hot picks for your interests
-
-Describe what you care about. Hot selects matching posts from your current feed and gives a short reason
-for each pick. It shares the same read and hidden state as Feed.
-
-<img src="docs/assets/stillfeed-hot.png" width="476" alt="Hot shows a coding-agent video and a local-model article, each with a reason it matches the reader's interests.">
-
-### A summary before the full article
-
-Open an article for a three-point summary and clean text. Videos with available transcripts can be read and
-summarized too. Choose the summary language in your configuration.
-
-<img src="docs/assets/stillfeed-reader.png" width="476" alt="The reader shows three summary points followed by the original article text.">
-
-### Save things you want to come back to
-
-Bookmark articles and posts as you browse. Saved groups them by topic automatically. Reading an item or
-hiding it from Feed does not remove its bookmark.
-
-<img src="docs/assets/stillfeed-saved.png" width="476" alt="Saved has a topic picker with Coding agents, Models and Evaluations, above bookmarked articles.">
-
-### Ask about what you're reading
-
-Open Discuss to ask a follow-up question about an article or the current batch. The conversation stays in
-Stillfeed, alongside the content you're reading.
-
-<img src="docs/assets/stillfeed-discuss.png" width="476" alt="Discuss answers a follow-up question using the article about running a coding model locally.">
-
-### Clear the posts you've seen when you're ready
-
-The counter shows seen items out of the current batch. Tap it and choose Hide seen to clear those posts,
-with Undo if you change your mind. Opening or scrolling past an item never removes it by itself.
-
-<img src="docs/assets/stillfeed-hide-seen.png" width="476" alt="Animation: open the seen counter, choose Hide seen, and use Undo to restore the hidden posts. Bookmarks remain saved.">
+<table>
+<tr>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-feed.png" width="100%" alt="The Feed tab mixes an article, a post from X and a YouTube video in the same list.">
+<h3>Feed</h3>
+Posts, articles and videos from all your sources in one list. Refresh runs every two hours by default.
+</td>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-hot.png" width="100%" alt="Hot shows a coding-agent video and a local-model article, each with a reason it matches the reader's interests.">
+<h3>Hot</h3>
+Describe what you care about. Hot picks matching posts from your current feed and says why each one fits.
+</td>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-reader.png" width="100%" alt="The reader shows three summary points followed by the original article text.">
+<h3>Read</h3>
+A three-point summary before the clean article text. Videos with transcripts work too.
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-saved.png" width="100%" alt="Saved has a topic picker with Coding agents, Models and Evaluations, above bookmarked articles.">
+<h3>Saved</h3>
+Bookmark anything as you browse. Saved groups your bookmarks by topic automatically.
+</td>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-discuss.png" width="100%" alt="Discuss answers a follow-up question using the article about running a coding model locally.">
+<h3>Discuss</h3>
+Ask a follow-up question about an article or the current batch, without leaving Stillfeed.
+</td>
+<td width="33%" valign="top">
+<img src="docs/assets/stillfeed-hide-seen.png" width="100%" alt="Animation: open the seen counter, choose Hide seen, and use Undo to restore the hidden posts. Bookmarks remain saved.">
+<h3>Hide seen</h3>
+The counter shows what you've seen. Hide seen clears it, with Undo. Nothing disappears on its own.
+</td>
+</tr>
+</table>
 
 ## Quick start
 

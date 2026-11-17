@@ -70,8 +70,10 @@ and makes no model calls. Demo thumbnails and avatars are local SVGs.
 PW=<path to playwright-core> CHROME=<chromium binary> bun run docs:shots
 ```
 
-`compose.ts` places the screenshots over Raycast's Glaze 2 wallpaper in `docs/assets/raycast-glaze-2.png` and
-creates the README banner and a separate social banner. The interface is captured from the app, inside an iPhone-style frame. Keep the wallpaper file when regenerating screenshots.
+`compose.ts` puts the captured interface in an iPhone-style frame. It builds the README banner as a dark
+grid with the feed on a phone beside crops of Hot, Read and Saved, and places the feature screenshots and the
+social banner over Raycast's Glaze 2 wallpaper in `docs/assets/raycast-glaze-2.png`. Keep the wallpaper file
+when regenerating screenshots.
 
 `animate.ts` combines captured Hide seen / Undo states into a lossless animated PNG, with a useful first
 frame for viewers that do not play APNG. The generator uses Bun and Chromium, without Python or an image
