@@ -1,4 +1,4 @@
-import {feedURL} from './feed-state';
+import {feedURL, validFeed} from './feed-state';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { loadChrome, toast } from './notify';
@@ -52,12 +52,12 @@ function hint(label: string | null, distance = 0, mode: 'back' | 'pull' = 'pull'
 const OptionsDrawer = lazy(() => loadChrome().then(m => ({ default: m.OptionsDrawer })));
 const Toasts = lazy(() => loadChrome().then(m => ({ default: m.Toasts })));
 
-export function App() {
+export function App({initialFeed}: {initialFeed?:Feed}) {
   const [prefs, setPrefsState] = useState(loadPreferences);
-  const [items, setItemsState] = useState<Article[]>([]);
-  const [feed, setFeedState] = useState<Feed | null>(null);
+  const [items, setItemsState] = useState<Article[]>(()=>initialFeed?.items.filter(article=>prefs.view==='saved'||!initialFeed.dismissed?.includes(article.id))??[]);
+  const [feed, setFeedState] = useState<Feed | null>(initialFeed??null);
   const [loading, setLoadingState] = useState(false);
-  const [booting, setBooting] = useState(true);
+  const [booting, setBooting] = useState(!initialFeed);
   const [failedNewView, setFailedState] = useState(false);
   const [message, setMessage] = useState('');
   const [syncFailed, setSyncFailed] = useState(false);
@@ -89,17 +89,17 @@ export function App() {
   const [hidingViewed, setHidingViewed] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
-  const [unseen, setUnseenState] = useState(0);
-  const [renderedCount, setRenderedCount] = useState(12);
+  const [unseen, setUnseenState] = useState(initialFeed?.unseen??0);
+  const [renderedCount, setRenderedCount] = useState(4);
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
     prefs, items, feed, loading, unseen, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
-    outbox: loadOutbox(), pages: 0, request: 0, restoring: false, restoreAnchor: null as string | null, sending: false, refreshRequested: false,
+    outbox: loadOutbox(), pages: initialFeed?Math.max(1,Math.ceil(initialFeed.items.length/PAGE_SIZE)):0, request: 0, restoring: false, restoreAnchor: null as string | null, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0,
     /** Explicitly hidden rows in the active snapshot. */
-    collapsed: new Set<string>(),
+    collapsed: new Set<string>(initialFeed?.dismissed),
     viewCache: new Map<Preferences['view'], { session: Session; feed: Feed; items: Article[]; unseen: number; collapsed: string[] }>(),
   }).current;
   const counterOpenRef = useRef(false); counterOpenRef.current = counterOpen;
@@ -190,7 +190,7 @@ export function App() {
       const page = restore ?? (append && r.feed ? {batch:r.feed.batch,offset:r.feed.next||0} : undefined);
       const result = await api<Feed>(feedURL(r.prefs,page,limit,r.feed));
       if (request !== r.request) return;
-      if (!Array.isArray(result.items) || !Number.isInteger(result.total) || typeof result.batch !== 'string') throw new Error('Invalid feed response');
+      if (!validFeed(result)) throw new Error('Invalid feed response');
       if(r.prefs.view==='hot'&&result.filters.personalBatch&&loadSession('stillfeed-session-feed')?.batch!==result.filters.personalBatch){
         const base=await api<Feed>('/api/feed?batch='+result.filters.personalBatch);
         if(request!==r.request)return;
@@ -204,7 +204,7 @@ export function App() {
       const visible = r.prefs.view !== 'saved' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
       const nextItems = append ? [...r.items, ...visible] : visible;
       const anchorIndex = r.restoreAnchor ? nextItems.findIndex(article => article.id === r.restoreAnchor) : -1;
-      const firstCount = append ? r.items.length + 12 : Math.max(12, anchorIndex + 4);
+      const firstCount = append ? r.items.length + 12 : Math.max(restore ? 12 : 4, anchorIndex + 4);
       flushSync(() => { setRenderedCount(firstCount); setFeed(result); setUnseen(result.unseen); setItems(nextItems); setLoading(false); setBooting(false); });
       r.pages+=Math.max(1,Math.ceil(result.items.length/PAGE_SIZE));
       watch(); save();
@@ -526,7 +526,9 @@ export function App() {
         const settingsLoaded = api<Settings>('/api/settings').then(setSettings);
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
         // Restore the batch until it expires on the server; visibility and age never dismiss rows.
-        await loadView(loadSession('stillfeed-session', r.prefs), r.prefs.view === 'saved');
+        if(initialFeed){
+          window.scrollTo(0,0);watch();save();
+        }else await loadView(loadSession('stillfeed-session', r.prefs), r.prefs.view === 'saved');
         // The feed is on screen: now the rest (sources summary, drawer, reader) without delaying it.
         void loadLibrary();
         setTimeout(() => idle(() => void prefetch().then(() => setChromeReady(true))), 1000);
@@ -644,6 +646,7 @@ export function App() {
   const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
+  const counterButton = <button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>;
   const sourceCount = library ? library.sources.length : null;
   const sourcesSummary = useMemo(() => library ? summarize(library.sources, library.accounts, status.failed) : null, [library, status.failed]);
   const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : 'noUpdates';
@@ -662,7 +665,7 @@ export function App() {
         </nav>
         <div className="top-actions">
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={!total} onClick={() => void discuss()}><Icon name="reply" size={18} /></button>
-          {view !== 'saved' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
+          {view !== 'saved' && feed && (chromeReady||counterOpen ? <Suspense fallback={counterButton}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense> : counterButton)}
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.

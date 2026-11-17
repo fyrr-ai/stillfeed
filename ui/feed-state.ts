@@ -38,7 +38,11 @@ export function feedURL(preferences: Preferences, restore?: {batch:string;offset
   return '/api/feed?'+params;
 }
 
-type InitialResponse = {path:string;response:Promise<Response>};
+export async function readResponse(response: Response) { return {response,data:await response.json()}; }
+export function validFeed(value: unknown): value is Feed {
+  return Boolean(value && typeof value==='object' && 'items' in value && Array.isArray(value.items) && 'total' in value && Number.isInteger(value.total) && 'batch' in value && typeof value.batch==='string');
+}
+type InitialResponse = {path:string;result:ReturnType<typeof readResponse>;ready?:Feed};
 const startup = window as typeof window & {__stillfeedInitialFeed?:InitialResponse};
 export function startInitialRequest(){
   // The older storage names are migrated by main.tsx before selecting a view.
@@ -51,13 +55,22 @@ export function startInitialRequest(){
   if(saved?.legacyDismissals?.length)return;
   const restore=saved&&preferences.view!=='saved'?{batch:saved.batch,offset:0}:undefined;
   const path=feedURL(preferences,restore,Math.min(saved?.pages??1,100)*PAGE_SIZE);
-  const response=fetch(path,{cache:'no-store'});
-  void response.catch(()=>{});
-  startup.__stillfeedInitialFeed={path,response};
+  const initial:InitialResponse={path,result:fetch(path,{cache:'no-store'}).then(readResponse)};
+  void initial.result.then(({response,data})=>{if(response.ok&&validFeed(data))initial.ready=data;}).catch(()=>{});
+  startup.__stillfeedInitialFeed=initial;
+}
+/** Fresh lists can use data that arrived before React loaded, without painting an empty list first.
+ * Position restoration still uses loadView, which mounts and measures the saved anchor. */
+export function takeReadyInitialFeed(){
+  const pending=startup.__stillfeedInitialFeed,preferences=loadPreferences();
+  if(location.pathname!=='/'||preferences.view==='hot'||loadSession('stillfeed-session',preferences)||pending?.path!==feedURL(preferences))return undefined;
+  if(!pending.ready)return undefined;
+  delete startup.__stillfeedInitialFeed;
+  return pending.ready;
 }
 export function takeInitialResponse(path:string){
   if(!path.startsWith('/api/feed?'))return undefined;
   const pending=startup.__stillfeedInitialFeed;
   delete startup.__stillfeedInitialFeed;
-  return pending?.path===path?pending.response:undefined;
+  return pending?.path===path?pending.result:undefined;
 }

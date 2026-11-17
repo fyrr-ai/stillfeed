@@ -323,6 +323,7 @@ export type Key = keyof typeof en;
 type Vars = Record<string, string | number>;
 
 const dictionary: Record<Key, string> = en;
+let numbers: Intl.NumberFormat;
 
 /** Looks a string up and fills `{name}` placeholders. Numbers are formatted for the interface locale. */
 export function t(key: Key, vars?: Vars): string {
@@ -330,7 +331,7 @@ export function t(key: Key, vars?: Vars): string {
   if (!vars) return text;
   return text.replace(/\{(\w+)\}/g, (_, name: string) => {
     const value = vars[name];
-    return typeof value === 'number' ? value.toLocaleString('en') : String(value ?? '');
+    return typeof value === 'number' ? (numbers ??= new Intl.NumberFormat('en')).format(value) : String(value ?? '');
   });
 }
 

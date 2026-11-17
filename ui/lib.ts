@@ -1,4 +1,4 @@
-import { takeInitialResponse } from './feed-state';
+import { readResponse, takeInitialResponse } from './feed-state';
 import type { Personal } from '../src/personal';
 import type { Article, Filters } from '../src/store';
 import { t } from './i18n';
@@ -25,8 +25,7 @@ export { defaults, PAGE_SIZE, loadPreferences, storePreferences, loadSession } f
 
 export async function api<T>(path: string, value?: unknown): Promise<T> {
   const initial = value === undefined ? takeInitialResponse(path) : undefined;
-  const response = await (initial ?? fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stillfeed': '1' }, body: JSON.stringify(value) } : {}) }));
-  const data = await response.json();
+  const {response,data} = await (initial ?? fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stillfeed': '1' }, body: JSON.stringify(value) } : {}) }).then(readResponse));
   if (!response.ok) throw new Error(data.error || 'Request failed');
   return data as T;
 }
@@ -45,8 +44,9 @@ export async function prepared<T>(path: string, cancelled: () => boolean, body?:
 }
 
 export const link = (value: unknown) => { try { const u = new URL(String(value)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
-export const relative = (ms: number) => { const n = Math.max(0, (Date.now() - ms) / 1000); return n < 60 ? t('time.now') : n < 3600 ? t('time.minutes', { n: Math.floor(n / 60) }) : n < 86400 ? t('time.hours', { n: Math.floor(n / 3600) }) : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(ms); };
-export const count = (n: unknown) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(n) || 0);
+let dates: Intl.DateTimeFormat, compactNumbers: Intl.NumberFormat;
+export const relative = (ms: number) => { const n = Math.max(0, (Date.now() - ms) / 1000); return n < 60 ? t('time.now') : n < 3600 ? t('time.minutes', { n: Math.floor(n / 60) }) : n < 86400 ? t('time.hours', { n: Math.floor(n / 3600) }) : (dates ??= new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' })).format(ms); };
+export const count = (n: unknown) => (compactNumbers ??= new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })).format(Number(n) || 0);
 /** Feed titles arrive HTML-escaped; decode entities to plain text, never to markup. */
 export function headline(value: string) { const text = document.createElement('textarea'); text.innerHTML = value.replace(/</g, '&lt;').replace(/>/g, '&gt;'); return text.value; }
 

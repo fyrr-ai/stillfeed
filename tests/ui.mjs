@@ -54,6 +54,30 @@ try{
  const sources=await request('/api/sources'),source=sources.find(s=>s.name===first.items[0].source);await request('/api/sources',{id:source.id,enabled:false});const muted=await request('/api/feed?scope=all');check('source configuration affects a new query',muted.total<first.total);await request('/api/sources',{id:source.id,enabled:true});
  await request('/api/settings',{windowHours:168,refreshEvery:3});check('settings are persisted in SQLite',(await request('/api/settings')).windowHours===168);await request('/api/settings',{windowHours:72,refreshEvery:2,nightPause:true});
  browser=await chromium.launch({executablePath:process.env.CHROME,args:['--no-sandbox']});
+ for(const startup of ['ready','slow','failed']){
+  const ctx=await browser.newContext({viewport:{width:390,height:844}});
+  await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({status:404,body:''}));
+  await ctx.route('**/api/image/**',r=>r.fulfill({status:404,body:''}));
+  let feedRequests=0;
+  await ctx.route('**/api/feed?*',async route=>{feedRequests++;if(startup==='slow')await sleep(500);if(startup==='failed')await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Startup temporarily unavailable'})});else await route.continue();});
+  if(startup==='ready')await ctx.route('**/assets/build/main-*.js',async route=>{await sleep(200);await route.continue();});
+  const p=await ctx.newPage();
+  await p.addInitScript(()=>{const observer=new MutationObserver(()=>{if(!document.getElementById('root')?.firstElementChild)return;window.firstCommitRows=document.querySelectorAll('#feed .feed-card').length;observer.disconnect();});observer.observe(document,{subtree:true,childList:true});});
+  await p.goto(base);
+  if(startup==='failed'){
+   await p.locator('#message').filter({hasText:'Startup temporarily unavailable'}).waitFor();
+   check('an early request failure remains visible and does not show cached rows',await p.locator('#feed .feed-card').count()===0&&feedRequests===1);
+  }else{
+   await p.locator('#feed .feed-card').first().waitFor();
+   check(`${startup} startup renders the requested feed with one request`,feedRequests===1);
+   check(`${startup} startup ${startup==='ready'?'renders ready data in the first commit':'keeps the loading state until data arrives'}`,await p.evaluate(()=>window.firstCommitRows)>0===(startup==='ready'));
+   if(startup==='ready'){
+    await p.locator('#readCount').click();await p.locator('#hideViewed').waitFor();
+    check('the counter menu works before idle UI loading',await p.locator('#hideViewed').isVisible());
+   }
+  }
+  await ctx.close();
+ }
  for(const width of [390,1280]){
   const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<760,hasTouch:true});
   await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({body:'<html>Original page</html>'}));
