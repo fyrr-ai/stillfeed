@@ -15,6 +15,7 @@ const Detail = lazy(() => loadDetail().then(m => ({ default: m.Detail })));
 const Sidebar = lazy(() => loadSidebar().then(m => ({ default: m.Sidebar })));
 const SourcesPage = lazy(() => loadSources().then(m => ({ default: m.SourcesPage })));
 const SavedTopicsPanel = lazy(() => import('./saved-topics').then(m => ({ default: m.SavedTopicsPanel })));
+const SeenCounter = lazy(() => import('./seen-counter').then(m => ({ default: m.SeenCounter })));
 const loadChat = () => import('./chat');
 const ChatPanel = lazy(() => loadChat().then(m => ({ default: m.ChatPanel })));
 // A second after the feed is on screen, when the browser is idle, fetch them anyway, so the first tap never
@@ -92,7 +93,7 @@ export function App() {
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState(prefs.q);
-  const [headerHidden, setHeaderHidden] = useState(false);
+  const [counterOpen, setCounterOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && location.pathname === '/');
   const [hot, setHot] = useState<HotItem[]>([]);
@@ -109,6 +110,7 @@ export function App() {
     /** Articles opened in the current snapshot: they stay out of it, also after a restore. */
     collapsed: new Set<string>(),
   }).current;
+  const counterOpenRef = useRef(false); counterOpenRef.current = counterOpen;
   const listRef = useRef<HTMLElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const readerRef = useRef<HTMLElement>(null);
@@ -131,7 +133,7 @@ export function App() {
   };
 
   // Seen means "was on screen for a second", never while options or the detail cover the feed.
-  const unobscured = () => !document.hidden && !r.optionsOpen && !r.chatOpen && !r.confirmOpen && !r.hotOpen && !covered();
+  const unobscured = () => !document.hidden && !r.optionsOpen && !r.chatOpen && !counterOpenRef.current && !r.confirmOpen && !r.hotOpen && !covered();
   const observer = useMemo(() => new IntersectionObserver(entries => {
     for (const entry of entries) {
       const node = entry.target as HTMLElement, id = node.dataset.id!;
@@ -142,6 +144,8 @@ export function App() {
   }, { rootMargin: '-100px 0px 0px', threshold: Array.from({ length: 21 }, (_, i) => i / 20) }), []);
   const unwatch = () => { observer.disconnect(); r.timers.forEach(clearTimeout); r.timers.clear(); };
   const watch = () => { unwatch(); if (!unobscured() || r.restoring) return; listRef.current?.querySelectorAll<HTMLElement>('.feed-card:not(.seen)').forEach(node => observer.observe(node)); };
+
+  useEffect(() => { watch(); }, [counterOpen]);
 
   function mark(id: string, on: boolean) {
     const article = r.items.find(a => a.id === id) ?? (r.route?.article?.id === id ? r.route.article : undefined);
@@ -272,6 +276,7 @@ export function App() {
     if (open) { window.scrollTo(0, 0); void loadHot(); } else { window.scrollTo(0, r.feedScroll); watch(); }
   }
   function openTab(tab: 'hot' | 'feed' | 'saved') {
+    setCounterOpen(false);
     if (tab === 'hot') return setHotOpen(true);
     const same = tab === r.prefs.view;
     setHotOpen(false);
@@ -478,13 +483,9 @@ export function App() {
     const onPop = () => void l().followRoute();
     const onOnline = () => void l().flush();
     let saveTimer: ReturnType<typeof setTimeout>;
-    let lastY = scrollY;
     const onScroll = () => {
       clearTimeout(saveTimer); saveTimer = setTimeout(() => l().save(), 150);
-      // Like X: the bar slides away while reading down and returns on the first move up.
-      const y = scrollY, delta = y - lastY; lastY = y;
-      setShowScrollTop(y > 300);
-      if (y < 60) setHeaderHidden(false); else if (delta > 6) setHeaderHidden(true); else if (delta < -6) setHeaderHidden(false);
+      setShowScrollTop(scrollY > 300);
     };
     const onPageHide = () => l().save();
     const onKey = (event: KeyboardEvent) => {
@@ -598,7 +599,14 @@ export function App() {
     const restore = () => { const y = r.sourcesOpen ? 0 : target; if (location.pathname === path && Date.now() < until && (inDetail || !r.route) && Math.abs(scrollY - y) > 2) window.scrollTo(0, y); };
     const observer = new MutationObserver(() => { restore(); requestAnimationFrame(restore); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
-    setTimeout(() => observer.disconnect(), 1500);
+    // The popup can restore scroll a frame after releasing its lock.
+    const stop = () => {
+      observer.disconnect(); removeEventListener('scroll', restore);
+      for (const event of ['pointerdown', 'touchstart', 'wheel', 'keydown']) removeEventListener(event, stop);
+    };
+    addEventListener('scroll', restore, { passive: true });
+    for (const event of ['pointerdown', 'touchstart', 'wheel', 'keydown']) addEventListener(event, stop, { passive: true });
+    setTimeout(stop, 1500);
   }
   function openSearch() { r.focusSearch = true; setOptionsOpen(true); }
   /** Setup steps: sources and X lead to the Sources page, AI to its drawer section. */
@@ -627,13 +635,14 @@ export function App() {
   return <>
     <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null || sourcesOpen}>
-      <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
+      <header className="topbar">
         <nav className="view-tabs" aria-label={t('tabs.label')}>
           <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>
           <button id="viewFeed" aria-pressed={!hotOpen && view === 'feed'} onClick={() => openTab('feed')}>{t('tabs.feed')}</button>
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
+          {!hotOpen && view === 'feed' && total > 0 && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} onClick={() => setCounterOpen(true)}>{total-unseen}/{total}</button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
@@ -652,7 +661,6 @@ export function App() {
       <main className="reader" ref={readerRef}>
         {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
         <div id="feedView" hidden={hotOpen}>
-        {view === 'feed' && items.length > 0 && <div className="feed-cleanup"><span id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})}>{total-unseen}/{total}</span><button id="hideViewed" className="ghost-button" disabled={!viewed} onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button></div>}
         {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
         <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>
         <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>

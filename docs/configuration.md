@@ -44,7 +44,8 @@ SQLite alongside its parent post, kept for saved posts, and reused by follow-up 
 in existing conversations. Failed downloads remain explicit unavailable sources and are retried on the next
 question; earlier assistant statements about missing text do not override newly loaded sources.
 
-**Hide seen · count** above the feed and at its end removes only rows already seen from the current snapshot,
+The read/total counter stays in the right side of the pinned header. Tap it to open **Hide seen · count**,
+which removes only rows already seen from the current snapshot. The same action is available in the footer,
 with **Undo**. Seen rows stay visible after reading, app returns and reloads until this action is used. New collections always need an explicit tap to replace the batch. It leaves bookmarks in Saved. Marking the entire batch seen remains a separate action in options.
 
 ## Summary language
