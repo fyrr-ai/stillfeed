@@ -22,7 +22,7 @@ export class Personal {
       this.store.setMeta('personalError','');
       this.store.setMeta('personalRetryAt','0');
       this.bump();
-    })();
+    }).immediate();
   }
   private bump(){this.store.setMeta('personalRevision',String(Number(this.store.meta('personalRevision')||0)+1));}
   private eligible() {
@@ -53,7 +53,7 @@ export class Personal {
       }
       if(rows.length)this.store.setMeta('personalLease',JSON.stringify({token,until:Date.now()+LEASE}));
       return rows;
-    })();
+    }).immediate();
     if(!candidates.length)return 0;
     try {
       const ratings=await rate(this.store.meta('personalInterests')||'',candidates,signal);
@@ -71,7 +71,7 @@ export class Personal {
         for(const r of ratings)insert.run(r.id,profile,r.score,r.reason.trim().slice(0,240),Date.now(),describe()?.model||'unknown');
         this.store.setMeta('personalError','');this.store.setMeta('personalRetryAt','0');if(ratings.some(r=>r.score>=2))this.bump();
         return ratings.length;
-      })();
+      }).immediate();
     } catch(error) {
       if(!signal?.aborted&&this.store.meta('personalProfile')===profile){
         this.store.setMeta('personalError',error instanceof Error?error.message:'Hot selection failed');

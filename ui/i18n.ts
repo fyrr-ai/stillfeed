@@ -111,10 +111,6 @@ export const en = {
   'hot.interests.save': 'Update Hot',
   'hot.interests.saving': 'Saving…',
   'hot.interests.saved': 'Interests saved. Hot is being updated.',
-  'hot.preparing': 'Selecting · {rated}/{total} reviewed',
-  'hot.ready': 'Selection ready · hide seen when you are ready',
-  'hot.noAI': 'Connect an AI provider in settings to select articles.',
-  'hot.failed': 'Selection paused. Retrying shortly; existing matches stay available.',
   'hot.newSelection': 'Show updated selection',
   'hot.why': 'Why it matters',
 

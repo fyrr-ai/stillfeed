@@ -24,7 +24,7 @@ const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdle
 const prefetch = () => Promise.all([loadChrome(), loadDetail(), loadSidebar(), loadSources()]);
 import {
   api, COMMIT, defaults, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
-  type Article, type Config, type Feed, type PersonalStatus, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
+  type Article, type Config, type Feed, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
 } from './lib';
 
 const detailPath = /^\/(article|post)\/([a-f0-9]{32})$/;
@@ -87,7 +87,6 @@ export function App() {
   const [counterOpen, setCounterOpen] = useState(false);
   const [hidingViewed, setHidingViewed] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
-  const [personal, setPersonal] = useState<PersonalStatus | null>(null);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
   const [unseen, setUnseen] = useState(0);
 
@@ -190,6 +189,12 @@ export function App() {
       const result = await api<Feed>('/api/feed?' + params);
       if (request !== r.request) return;
       if (!Array.isArray(result.items) || !Number.isInteger(result.total) || typeof result.batch !== 'string') throw new Error('Invalid feed response');
+      if(r.prefs.view==='hot'&&result.filters.personalBatch&&loadSession('stillfeed-session-feed')?.batch!==result.filters.personalBatch){
+        const base=await api<Feed>('/api/feed?batch='+result.filters.personalBatch);
+        if(request!==r.request)return;
+        const session:Session={preferences:{...defaults,view:'feed',scope:base.filters.scope,kind:base.filters.kind,q:base.filters.q},batch:base.batch,pages:1,position:null,seenBefore:base.seenBefore,revision:base.revision,at:Date.now()};
+        sessionStorage.setItem('stillfeed-session-feed',JSON.stringify(session));
+      }
       if (!append) { unwatch(); r.pages = 0; }
       // Commit synchronously: restoring a position measures the rows right after this call.
       r.collapsed = new Set(result.dismissed ?? []);
@@ -283,7 +288,6 @@ export function App() {
     try {
       const data = await api<Status>('/api/status');
       const refreshing = data.refresh === 'running';
-      if(data.personal)setPersonal(data.personal);
       let newUpdates = r.prefs.view === 'feed' && r.feed !== null && r.feed.revision !== data.revision;
       if(r.prefs.view==='hot'&&r.feed&&data.personal)newUpdates ||= r.feed.filters.personalRevision !== data.personal.revision;
       if (r.refreshRequested && !refreshing) { r.refreshRequested = false; newUpdates ||= r.prefs.view === 'feed' && r.feed?.revision !== data.revision; }
@@ -299,6 +303,7 @@ export function App() {
         refreshing, newUpdates,
       }));
       if (data.refresh === 'failed') setMessage(t('error.refresh'));
+      else setMessage(current => current === t('error.refresh') ? '' : current);
     } catch { setMessage(t('error.status')); }
   }
   async function refresh() {
@@ -649,7 +654,6 @@ export function App() {
       <main className="reader" ref={readerRef}>
         <div id="feedView">
         {view === 'hot' && <div className="hot-intro"><span>{t('hot.description')}</span><button className="text-button" onClick={() => openSetup('ai')}>{t('hot.editInterests')}</button>
-          {personal && <p role="status">{!personal.enabled ? t('hot.noAI') : personal.error ? t('hot.failed') : personal.pending ? t('hot.preparing', {rated:personal.rated,total:personal.total}) : t('hot.ready')}</p>}
         </div>}
         {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
         <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>

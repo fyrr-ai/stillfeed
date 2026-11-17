@@ -10,7 +10,7 @@ export function refreshHours(every:number,nightPause:boolean){
   const hours:number[]=[];for(let h=nightPause?5:0;h<(nightPause?23:24);h+=every)hours.push(h);return hours;
 }
 export type RecordData = Record<string, unknown>;
-export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number; personalBatch?:string };
+export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number; personalBatch?:string; queueVersion?:2 };
 export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null; personalReason?:string };
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,32);
 export function canonical(value: unknown): string {
@@ -64,10 +64,19 @@ export class Store {
       PRAGMA user_version=2;`);
     const columns=new Set((this.db.query('PRAGMA table_info(articles)').all() as {name:string}[]).map(c=>c.name));
     for(const name of ['content','summary','author','image_url','ai_reason'])if(!columns.has(name))this.db.exec(`ALTER TABLE articles ADD COLUMN ${name} TEXT`);
-    if(!this.meta('feedQueueMigrated'))this.db.transaction(()=>{
-      this.db.exec("INSERT OR IGNORE INTO feed_queue SELECT DISTINCT i.article_id FROM batch_items i JOIN batches b ON b.id=i.batch_id WHERE COALESCE(json_extract(b.filters,'$.savedOnly'),0)=0");
-      this.setMeta('feedQueueMigrated','1');
-    })();
+    if(this.meta('feedQueueVersion')!=='2')this.db.transaction(()=>{
+      if(this.meta('feedQueueVersion')==='2')return;
+      // v1 merged every historical snapshot, including retired automatic-seen views and Hot.
+      // Recover the last queue the reader explicitly dismissed from, rather than that archive.
+      const regular="COALESCE(json_extract(b.filters,'$.savedOnly'),0)=0 AND COALESCE(json_extract(b.filters,'$.personalOnly'),0)=0";
+      const base=(this.db.query(`SELECT b.id FROM feed_hide_actions h JOIN batches b ON b.id=h.batch_id WHERE ${regular} ORDER BY h.at DESC LIMIT 1`).get()
+        ||this.db.query(`SELECT b.id FROM batches b WHERE ${regular} AND json_extract(b.filters,'$.hideSeen')=1 ORDER BY b.created DESC LIMIT 1`).get()
+        ||this.db.query(`SELECT b.id FROM batches b WHERE ${regular} ORDER BY b.created ASC LIMIT 1`).get()) as {id:string}|null;
+      this.db.exec('DELETE FROM feed_queue');
+      if(base){this.db.query('INSERT OR IGNORE INTO feed_queue SELECT article_id FROM batch_items WHERE batch_id=?').run(base.id);this.setMeta('personalFeedBatch',base.id);}
+      this.setMeta('feedQueueVersion','2');
+      this.db.query("DELETE FROM meta WHERE key='feedQueueMigrated'").run();
+    }).immediate();
     if(!this.meta('personalFeedBatch')){
       const base=this.db.query("SELECT id FROM batches WHERE COALESCE(json_extract(filters,'$.savedOnly'),0)=0 AND COALESCE(json_extract(filters,'$.personalOnly'),0)=0 ORDER BY created DESC LIMIT 1").get() as {id:string}|null;
       if(base)this.setMeta('personalFeedBatch',base.id);
@@ -79,6 +88,22 @@ export class Store {
   }
   meta(key: string) { return (this.db.query('SELECT value FROM meta WHERE key=?').get(key) as {value:string}|null)?.value; }
   setMeta(key: string, value: string) { this.db.query('INSERT OR REPLACE INTO meta VALUES(?,?)').run(key,value); }
+  /** The owning process, rather than a timeout, determines whether a collection is still running. */
+  claimCollection():string|null {
+    return this.db.transaction(()=>{
+      const previous=JSON.parse(this.meta('collectionLease')||'0') as number|{pid:number;token:string};
+      // Respect a still-fresh lease written by the previous version during an upgrade.
+      if(typeof previous==='number'){
+        if(previous>Date.now()-20*60000)return null;
+      }else if(Number.isInteger(previous.pid)&&previous.pid>0){
+        try{process.kill(previous.pid,0);return null;}
+        catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}
+      }else throw new Error('Invalid collection lease');
+      const lease=JSON.stringify({pid:process.pid,token:randomUUID()});
+      this.setMeta('collectionLease',lease);return lease;
+    }).immediate();
+  }
+  releaseCollection(lease:string){this.db.query("DELETE FROM meta WHERE key='collectionLease' AND value=?").run(lease);}
   settings() {
     const rows=this.db.query('SELECT key,value FROM settings').all() as {key:string,value:string}[];
     const values=Object.fromEntries(rows.map(r=>[r.key,JSON.parse(r.value)]));
@@ -175,14 +200,16 @@ export class Store {
       batch=this.db.query('SELECT * FROM batches WHERE id=?').get(batchId) as Batch|null;
       if(!batch)throw new Error('View expired. Refresh to continue.');
       const frozen=JSON.parse(batch.filters) as Filters;
-      if(frozen.personalOnly&&!frozen.personalBatch)throw new Error('Hot selection changed. Refresh to continue.');
+      if(!frozen.savedOnly&&frozen.queueVersion!==2)throw new Error('Feed queue changed. Refresh to continue.');
     } else {
+      if(!filters.savedOnly)filters={...filters,queueVersion:2};
       if(filters.personalOnly){
         let parent=filters.personalBatch||this.meta('personalFeedBatch');
         if(!parent||!this.db.query('SELECT 1 FROM batches WHERE id=?').get(parent))parent=this.feed({...filters,personalOnly:false,personalBatch:undefined}).batch;
         const base=this.db.query('SELECT filters FROM batches WHERE id=?').get(parent) as {filters:string};
         const baseFilters=JSON.parse(base.filters) as Filters;
         if(baseFilters.savedOnly||baseFilters.personalOnly)throw new Error('Hot must use a Feed batch');
+        if(baseFilters.queueVersion!==2)parent=this.feed({...baseFilters,revision:undefined,seenBefore:undefined}).batch;
         filters={...filters,personalBatch:parent,personalProfile:this.meta('personalProfile')||'',personalRevision:Number(this.meta('personalRevision')||0)};
       }
       const revision=filters.revision || Number(this.meta('revision')||0);
@@ -215,7 +242,7 @@ export class Store {
         this.db.query('INSERT INTO batches VALUES(?,?,?,?,?)').run(batch!.id,before,revision,batch!.filters,ids.length);
         const insert=this.db.query('INSERT INTO batch_items VALUES(?,?,?)');
         ids.forEach((row,i)=>insert.run(batch!.id,i,row.id));
-        if(!filters.savedOnly){const enqueue=this.db.query('INSERT OR IGNORE INTO feed_queue VALUES(?)');ids.forEach(row=>enqueue.run(row.id));}
+        if(!filters.savedOnly&&!filters.personalOnly){const enqueue=this.db.query('INSERT OR IGNORE INTO feed_queue VALUES(?)');ids.forEach(row=>enqueue.run(row.id));}
       })();
     }
     const frozenFilters=JSON.parse(batch.filters) as Filters;

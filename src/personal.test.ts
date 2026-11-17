@@ -84,6 +84,18 @@ test('one worker holds a lease and stale results cannot overwrite a changed prof
   }finally{close()}
 });
 
+test('a competing SQLite writer cannot invalidate the worker lease transaction snapshot',async()=>{
+  const {store,personal,directory,close}=fixture(3),signal=join(directory,'writer-go');
+  const writer=Bun.spawn([process.execPath,'-e',`import {Store} from ${JSON.stringify(join(import.meta.dir,'store.ts'))};const s=new Store(${JSON.stringify(directory)});console.log('ready');while(!await Bun.file(${JSON.stringify(signal)}).exists())await Bun.sleep(1);s.setMeta('competingWrite','done');s.close();`],{stdout:'pipe',stderr:'pipe'});
+  const original=store.meta.bind(store);let signalled=false;
+  try{
+    const reader=writer.stdout.getReader();await reader.read();
+    store.meta=key=>{const value=original(key);if(key==='personalLease'&&!signalled){signalled=true;writeFileSync(signal,'go');Bun.sleepSync(200);}return value;};
+    expect(await personal.work(accept,randomUUID())).toBe(3);
+    expect(await writer.exited).toBe(0);expect(original('competingWrite')).toBe('done');
+  }finally{store.meta=original;writer.kill();await writer.exited;close();}
+});
+
 test('reading never hides a Hot item; Hide seen and Undo keep bookmarks',async()=>{
   const {store,personal,close}=fixture(3);try{
     await personal.work(accept,randomUUID());const batch=store.feed(filters),a=batch.items[0]!,b=batch.items[1]!;

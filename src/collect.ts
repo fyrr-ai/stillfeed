@@ -31,9 +31,8 @@ async function parallel<T,R>(items:T[],workers:number,work:(item:T)=>Promise<R>)
 }
 export async function collect(store:Store,app:string,options:{noX?:boolean;noWeb?:boolean;noModel?:boolean}={}){
   await seed(store,app);
-  const lease=String(Date.now());
-  const acquired=store.db.query("INSERT INTO meta(key,value) VALUES('collectionLease',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(meta.value AS INTEGER)<? RETURNING value").get(lease,Date.now()-20*60000);
-  if(!acquired)throw new Error('A collection is already running');
+  const lease=store.claimCollection();
+  if(!lease)throw new Error('A collection is already running');
   try{
     const now=Date.now(),cutoff=now-store.settings().windowHours*3600000;
     const feeds=store.db.query('SELECT f.* FROM feeds f JOIN sources s ON s.id=f.source_id WHERE s.enabled=1').all() as Feed[];
@@ -70,7 +69,7 @@ export async function collect(store:Store,app:string,options:{noX?:boolean;noWeb
     store.setMeta('collectionStatus',JSON.stringify({rss:first.filter(r=>!r.error).length,failed:first.filter(r=>r.error).length+payload.statuses.filter(s=>!s.ok).length,webs:payload.statuses,x:options.noX?'not_requested':!process.env.SOCIALDATA_API_KEY?'not_configured':xSuccess?'ok':'failed'}));
     if(!xSuccess||payload.statuses.some(s=>!s.ok)||first.some(r=>r.error))console.error('Some sources failed; successful sources were saved and previous articles retained.');
     return result;
-  }finally{store.db.query("UPDATE meta SET value='0' WHERE key='collectionLease' AND value=?").run(lease);}
+  }finally{store.releaseCollection(lease);}
 }
 
 export const interestsPath=()=>config.interests;

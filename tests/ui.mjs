@@ -266,6 +266,12 @@ try{
     await reveal();await p.locator('#viewHot').click();await p.locator('#feed .card-note').first().waitFor();
     check('Hot shows personal matches with their reasons',await p.locator('#feed .feed-card').count()===2&&await p.locator('#feed .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
     check('Hot has no count badge',await p.locator('#viewHot .tab-count').count()===0);
+    check('Hot has no redundant selection status row',await p.locator('.hot-intro p').count()===0);
+    let refreshResult='failed';
+    await p.route('**/api/status',async route=>{const response=await route.fetch();const data=await response.json();await route.fulfill({json:{...data,refresh:refreshResult}});});
+    await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await p.locator('#message').filter({hasText:'The last refresh failed.'}).waitFor();
+    refreshResult='idle';await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await p.locator('#message').waitFor({state:'hidden'});
+    check('a recovered refresh clears its previous error banner',await p.locator('#message').isHidden());await p.unroute('**/api/status');
     const parentBatch=await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session-feed')).batch);
     check('Hot is bound to the actual Feed snapshot',await p.evaluate(id=>JSON.parse(sessionStorage.getItem('stillfeed-session-hot')).personalBatch===id,parentBatch));
     const remainingInFeed=sql('SELECT COUNT(*) FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)',[parentBatch])[0][0];
@@ -288,6 +294,10 @@ try{
     await p.locator('#newUpdates').click();await p.waitForFunction(()=>document.querySelector('#readCount')?.textContent==='0/0');
     check('new interests wait for their own ratings',await p.locator('#feed .feed-card').count()===0);
     await request('/api/personal',{interests:originalInterests});
+    const legacy=await p.evaluate(()=>({hot:JSON.parse(sessionStorage.getItem('stillfeed-session-hot')).batch,feed:JSON.parse(sessionStorage.getItem('stillfeed-session-feed')).batch}));
+    sql("UPDATE batches SET filters=json_remove(filters,'$.queueVersion') WHERE id IN (?,?)",[legacy.hot,legacy.feed]);
+    await p.reload();await p.locator('#feed .card-note').first().waitFor();
+    check('a retired queue snapshot is rebuilt instead of restoring its old counts',await p.evaluate(old=>{const feed=JSON.parse(sessionStorage.getItem('stillfeed-session-feed')),hot=JSON.parse(sessionStorage.getItem('stillfeed-session-hot'));return feed.batch!==old&&hot.personalBatch===feed.batch;},legacy.feed));
     await p.locator('#viewFeed').click();await p.waitForFunction(()=>document.querySelector('#viewFeed').getAttribute('aria-pressed')==='true');await p.locator('#feed .feed-card').first().waitFor();
   }
   // Sources: its own page (/sources) opened from one drawer row; Back returns to the same place in the feed.

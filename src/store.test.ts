@@ -96,3 +96,33 @@ test('migration preserves only explicitly hidden legacy rows, without hiding oth
   expect(store.feed(prefs).total).toBe(74);expect(store.feed(prefs).items.some(a=>a.id===second)).toBe(true);
  }finally{store.close()}
 });
+
+test('a killed collector releases ownership immediately and an old owner cannot release a new lease',async()=>{
+ const {dir}=await fixture(),store=new Store(dir);
+ const child=Bun.spawn([process.execPath,'-e',`import {Store} from ${JSON.stringify(join(import.meta.dir,'store.ts'))};const s=new Store(${JSON.stringify(dir)});console.log(JSON.stringify(s.claimCollection()));await Bun.sleep(60000);`],{stdout:'pipe',stderr:'pipe'});
+ try{
+  const reader=child.stdout.getReader(),chunk=await reader.read();const oldLease=JSON.parse(new TextDecoder().decode(chunk.value)) as string;
+  expect(oldLease).toBeTruthy();expect(store.claimCollection()).toBeNull();
+  child.kill('SIGKILL');await child.exited;
+  const replacement=store.claimCollection();expect(replacement).toBeTruthy();
+  store.releaseCollection(oldLease);expect(store.meta('collectionLease')).toBe(replacement!);
+  store.releaseCollection(replacement!);expect(store.meta('collectionLease')).toBeUndefined();
+ }finally{child.kill();await child.exited;store.close();}
+});
+
+test('queue upgrade recovers the explicitly managed batch, without resurrecting historical snapshots',async()=>{
+ const {dir}=await fixture();let store=new Store(dir);
+ try{
+  store.ingest([{url:'https://example.com/expired',title:'Retired historical item',source:'Test journal',published_at:'2026-11-01T00:00:00Z'}],'2026-11-02T00:00:00Z');
+  store.feed(prefs);store.db.exec('DELETE FROM feed_queue');
+  load(store);const base=store.feed(prefs),first=base.items[0]!.id,second=base.items[1]!.id;
+  store.mark([first,second],true);store.save(first,true);store.hideSeen(base.batch,randomUUID());
+  store.db.query('INSERT INTO feed_queue VALUES(?)').run(hash('https://example.com/expired'));
+  const polluted=store.feed(prefs);expect(polluted.total).toBe(74);
+  store.db.exec("UPDATE batches SET filters=json_remove(filters,'$.queueVersion')");store.setMeta('feedQueueVersion','1');store.close();
+  store=new Store(dir);expect(()=>store.feed(prefs,polluted.batch)).toThrow('queue changed');
+  expect(store.feed(prefs).total).toBe(73);
+  expect(store.db.query('SELECT 1 FROM feed_queue WHERE article_id=?').get(hash('https://example.com/expired'))).toBeNull();
+  expect(store.feed({...prefs,savedOnly:true}).items[0]?.id).toBe(first);
+ }finally{store.close()}
+});
