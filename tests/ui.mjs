@@ -266,6 +266,10 @@ try{
     await reveal();await p.locator('#viewHot').click();await p.locator('#feed .card-note').first().waitFor();
     check('Hot shows personal matches with their reasons',await p.locator('#feed .feed-card').count()===2&&await p.locator('#feed .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
     check('Hot has no count badge',await p.locator('#viewHot .tab-count').count()===0);
+    const warmRequests=[];const countWarm=request=>{if(request.url().includes('/api/feed?'))warmRequests.push(request.url());};p.on('request',countWarm);
+    await p.locator('#viewFeed').click();await p.waitForFunction(()=>document.querySelector('#viewFeed').getAttribute('aria-pressed')==='true');await p.locator('#feed .feed-card').first().waitFor();
+    await p.locator('#viewHot').click();await p.locator('#feed .card-note').first().waitFor();p.off('request',countWarm);
+    check('returning to loaded Feed and Hot needs no feed request',warmRequests.length===0);
     check('Hot has no redundant selection status row',await p.locator('.hot-intro p').count()===0);
     let refreshResult='failed';
     await p.route('**/api/status',async route=>{const response=await route.fetch();const data=await response.json();await route.fulfill({json:{...data,refresh:refreshResult}});});

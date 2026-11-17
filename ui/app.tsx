@@ -88,17 +88,18 @@ export function App() {
   const [hidingViewed, setHidingViewed] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   // Unseen updates in the current snapshot: from the server on every page, then counted down locally.
-  const [unseen, setUnseen] = useState(0);
+  const [unseen, setUnseenState] = useState(0);
   const [renderedCount, setRenderedCount] = useState(12);
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
-    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
+    prefs, items, feed, loading, unseen, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, restoreAnchor: null as string | null, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0,
     /** Explicitly hidden rows in the active snapshot. */
     collapsed: new Set<string>(),
+    viewCache: new Map<Preferences['view'], { session: Session; feed: Feed; items: Article[]; unseen: number; collapsed: string[] }>(),
   }).current;
   const counterOpenRef = useRef(false); counterOpenRef.current = counterOpen;
   const listRef = useRef<HTMLElement>(null);
@@ -107,6 +108,7 @@ export function App() {
   // Pull to refresh moves the list with a plain transform; motion stays in the lazily loaded reader.
   const pull = (y: number, settle = false) => { const feed = listRef.current; if (!feed) return; feed.style.transition = settle && !reducedMotion.matches ? 'transform .32s cubic-bezier(.2,.9,.3,1.15)' : 'none'; feed.style.transform = y ? `translateY(${y}px)` : ''; };
 
+  const setUnseen = (next: number | ((value: number) => number)) => { r.unseen = typeof next === 'function' ? next(r.unseen) : next; setUnseenState(r.unseen); };
   const setPrefs = (next: Preferences) => { r.prefs = next; setPrefsState(next); setQuery(next.q); storePreferences(next); };
   const setItems = (next: Article[]) => { r.items = next; setItemsState(next); };
   const setFeed = (next: Feed | null) => { r.feed = next; setFeedState(next); };
@@ -118,6 +120,13 @@ export function App() {
   const covered = () => r.route !== null || r.sourcesOpen;
   const setSettings = (next: Settings) => { r.settings = next; setSettingsState(next); };
   const patchArticle = (id: string, patch: Partial<Article>) => {
+    for (const [view, cached] of r.viewCache) {
+      const previous = cached.items.find(item => item.id === id);
+      if ((patch.saved !== undefined && view === 'saved') || (patch.seen !== undefined && !previous)) { r.viewCache.delete(view); continue; }
+      if (!previous) continue;
+      if (patch.seen !== undefined && previous.seen !== patch.seen) cached.unseen = Math.max(0, cached.unseen + (patch.seen ? -1 : 1));
+      cached.items = cached.items.map(item => item.id === id ? {...item, ...patch} : item);
+    }
     if (r.items.some(a => a.id === id)) setItems(r.items.map(a => a.id === id ? { ...a, ...patch } : a));
     if (r.route?.article?.id === id) setRoute({ ...r.route, article: { ...r.route.article, ...patch } });
   };
@@ -166,6 +175,7 @@ export function App() {
     if (!r.feed || r.restoring || r.failedNewView || covered()) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
     const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), personalBatch: r.feed.filters.personalBatch };
+    if(r.prefs.view !== 'saved')r.viewCache.set(r.prefs.view, {session:data,feed:r.feed,items:r.items,unseen:r.unseen,collapsed:[...r.collapsed]});
     sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
     sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
@@ -259,7 +269,12 @@ export function App() {
     r.restoreAnchor = saved?.position?.id ?? null;
     r.restoring = true; if (listRef.current) listRef.current.style.visibility = 'hidden';
     try {
-      if (saved && !fresh) {
+      const cached = r.viewCache.get(r.prefs.view);
+      if (saved && cached && cached.session.batch === saved.batch && JSON.stringify(cached.session.preferences) === JSON.stringify(r.prefs)) {
+        r.request++; r.pages = cached.session.pages; r.collapsed = new Set(cached.collapsed);
+        const anchorIndex = cached.items.findIndex(item => item.id === saved.position?.id);
+        flushSync(() => { setRenderedCount(Math.max(12,anchorIndex+4)); setFeed(cached.feed); setItems(cached.items); setUnseen(cached.unseen); setLoading(false); setBooting(false); setFailed(false); setMessage(''); });
+      } else if (saved && !fresh) {
         try {
           if (saved.legacyDismissals?.length) await api(`/api/feed/${saved.batch}/hide-seen`, {action: saved.batch, ids: saved.legacyDismissals});
           await getPage(false,{batch:saved.batch,offset:0},Math.min(saved.pages,100)*PAGE_SIZE);
@@ -291,7 +306,7 @@ export function App() {
     const next = await api<Settings>('/api/settings', { ...r.settings, ...patch });
     const rebuild = next.windowHours !== r.settings.windowHours;
     setSettings(next);
-    if (rebuild) { setFeed(null); await getPage(false).catch(() => {}); }
+    if (rebuild) { r.viewCache.clear(); setFeed(null); await getPage(false).catch(() => {}); }
     void refreshStatus();
   }
   /** New data always waits for an explicit tap, including at the top. */
@@ -333,6 +348,7 @@ export function App() {
     setBusy(set => new Set(set).add(article.id)); setNotice('');
     try {
       await api(`/api/article/${article.id}/saved`, { saved: on });
+      r.viewCache.delete('saved');
       sessionStorage.removeItem('stillfeed-session-saved');
       patchArticle(article.id, { saved: on });
       // One toast at a time: a newer action replaces the previous Undo.
@@ -355,6 +371,7 @@ export function App() {
       const action = crypto.randomUUID();
       const result = await api<{ids: string[]}>(`/api/feed/${batch}/hide-seen`, {action});
       if (r.feed?.batch !== batch) return;
+      r.viewCache.clear();
       const before = r.items, y = scrollY;
       const ids = result.ids.filter(id => !r.collapsed.has(id));
       if (!ids.length) return;
@@ -365,6 +382,7 @@ export function App() {
       notify(t('feed.hiddenViewed', { n: ids.length }), { action: { label: t('toast.undo'), onAction: async () => {
         try {
           await api('/api/feed/undo-hide-seen', {action});
+          r.viewCache.clear();
           if (r.feed?.batch !== batch) return;
           const snapshot: Session = {preferences: {...r.prefs}, batch, pages: r.pages, position: null, seenBefore: r.feed.seenBefore, revision: r.feed.revision};
           await loadView(snapshot);
@@ -391,6 +409,7 @@ export function App() {
     if (!r.feed) return;
     try {
       const { ids } = await api<{ ids: string[] }>('/api/seen-batch', { batch: r.feed.batch });
+      r.viewCache.clear();
       const changed = new Set(ids);
       ids.forEach(id => { delete r.outbox[id]; }); localStorage.setItem('stillfeed-outbox', JSON.stringify(r.outbox));
       // Every row of the batch is seen on the server now, including rows this device had not caught up on.
@@ -398,6 +417,7 @@ export function App() {
 
       notify(ids.length ? t('toast.markedSeen', { n: ids.length }) : t('toast.alreadySeen'), ids.length ? { action: { label: t('toast.undo'), onAction: async () => {
         for (let i = 0; i < ids.length; i += 2000) await api('/api/seen', { ids: ids.slice(i, i + 2000), seen: false });
+        r.viewCache.clear();
         setItems(r.items.map(a => changed.has(a.id) ? { ...a, seen: false } : a)); setUnseen(n => n + ids.length);
         watch();
       } } } : undefined);
@@ -662,7 +682,7 @@ export function App() {
           }}>
               <Suspense fallback={null}><Sidebar prefs={prefs} query={query} setQuery={setQuery} change={(next, fresh) => void change(next, fresh)} settings={settings} applySettings={applySettings}
                 status={status} refreshing={feedRefreshing} refresh={() => void refresh()} sources={sourcesSummary} openSources={() => openSources()}
-                config={config} interestsChanged={() => void refreshStatus()} counts={view !== 'saved' && feed ? { unseen, total } : null}
+                config={config} interestsChanged={() => { r.viewCache.delete('hot'); void refreshStatus(); }} counts={view !== 'saved' && feed ? { unseen, total } : null}
                 markAll={() => { setOptionsOpen(false); void markAllSeen(); }} onConfirmOpen={open => { r.confirmOpen = open; if (open) unwatch(); }} onConfirmSettled={() => watch()} /></Suspense>
           </OptionsDrawer></Suspense>}
         </div>
@@ -703,7 +723,7 @@ export function App() {
       void api<Article>(`/api/article/${id}`).then(article => { setChat(null); r.chatOpen = false; openDetail(article, null); }).catch(e => notify(e instanceof Error ? e.message : t('chat.failed')));
     }} /></Suspense>}
     {sourcesOpen && <Suspense fallback={null}><SourcesPage focus={sourcesFocus} back={backToFeed} config={config} failed={status.failed} refresh={() => void refresh()} refreshing={status.refreshing} notify={text => notify(text)}
-      changed={() => { r.sourcesChanged = true; }} loaded={(sources, accounts) => setLibrary({ sources, accounts })} /></Suspense>}
+      changed={() => { r.sourcesChanged = true; r.viewCache.clear(); }} loaded={(sources, accounts) => setLibrary({ sources, accounts })} /></Suspense>}
     <GestureHint />
     {chromeReady && <Suspense fallback={null}><Toasts /></Suspense>}
   </>;
