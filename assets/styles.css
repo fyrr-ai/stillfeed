@@ -135,7 +135,8 @@ svg { flex: none; }
 .view-tabs button[aria-pressed=true] .tab-count { color: var(--text-high); }
 .top-actions { display: flex; align-items: center; margin-left: auto; }
 /* Read / total in the current snapshot: quiet mono, grows as you read. */
-.read-count { min-height: 44px; padding: 3px 8px; margin-right: 8px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 8px; margin-right: 8px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count:hover, .read-count[aria-expanded=true] { background: var(--gray-alpha-100); color: var(--text-high); }
 
 /* ── Feed ───────────────────────────────────────────────────────────────────────────────────── */
 #readerOptions { display: flex; flex-direction: column; min-height: 100dvh; }
@@ -576,4 +577,5 @@ button.photo { cursor: zoom-in; }
 @media (max-width: 600px) { .chat-panel { width: 100vw; border: 0; padding-inline: 16px; } .discuss-button span { display: none; } }
 
 .seen-actions { width: max-content; max-width: calc(100vw - 24px); }
+.batch-count-label { display: block; padding: 4px 6px 10px; color: var(--text-low); font-size: var(--text-mono); font-weight: 400; }
 @media (max-width: 380px) { .view-tabs button { padding-inline: 8px; } .read-count { padding-inline: 4px; margin-right: 4px; } }

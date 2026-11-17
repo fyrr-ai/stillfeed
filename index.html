@@ -122,7 +122,8 @@ svg { flex: none; }
 .view-tabs .tab-count { position: relative; display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--subtle-bg); color: var(--text-low); font-size: 11px; font-weight: 500; vertical-align: 2px; }
 .view-tabs button[aria-pressed=true] .tab-count { color: var(--text-high); }
 .top-actions { display: flex; align-items: center; margin-left: auto; }
-.read-count { min-height: 44px; padding: 3px 8px; margin-right: 8px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 8px; margin-right: 8px; border: 0; border-radius: var(--radius-sm); background: none; font-family: var(--font-mono); color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count:hover, .read-count[aria-expanded=true] { background: var(--gray-alpha-100); color: var(--text-high); }
 #readerOptions { display: flex; flex-direction: column; min-height: 100dvh; }
 .reader { flex: 1; width: 100%; max-width: var(--column); margin: 0 auto; padding: 0; touch-action: pan-y pinch-zoom; }
 #feed { touch-action: pan-y pinch-zoom; }
@@ -514,8 +515,9 @@ body { background: var(--canvas); }
 .chat-error button { margin-top: 8px; }
 @media (max-width: 600px) { .chat-panel { width: 100vw; border: 0; padding-inline: 16px; } .discuss-button span { display: none; } }
 .seen-actions { width: max-content; max-width: calc(100vw - 24px); }
+.batch-count-label { display: block; padding: 4px 6px 10px; color: var(--text-low); font-size: var(--text-mono); font-weight: 400; }
 @media (max-width: 380px) { .view-tabs button { padding-inline: 8px; } .read-count { padding-inline: 4px; margin-right: 4px; } }</style>
-  <script type="module" src="/assets/build/main-sp9jcbc0.js"></script>
+  <script type="module" src="/assets/build/main-8ddn5wap.js"></script>
 </head>
 <body>
 <div id="root"></div>

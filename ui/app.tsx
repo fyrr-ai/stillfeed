@@ -176,7 +176,7 @@ export function App() {
     storePreferences(r.prefs);
     if (!r.feed || r.restoring || r.failedNewView || covered()) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
-    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), collapsed: [...r.collapsed], dismissalVersion: 2 };
+    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now() };
     sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
     sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
@@ -202,7 +202,7 @@ export function App() {
       if (!Array.isArray(result.items) || !Number.isInteger(result.total) || typeof result.batch !== 'string') throw new Error('Invalid feed response');
       if (!append) { unwatch(); r.pages = 0; }
       // Commit synchronously: restoring a position measures the rows right after this call.
-      if (!append && !restore) r.collapsed = new Set();
+      r.collapsed = new Set(result.dismissed ?? []);
       // Only explicit dismissals leave the current snapshot.
       const visible = r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
       flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
@@ -240,11 +240,14 @@ export function App() {
     setTimeout(stop, 2500);
   }
   async function loadView(saved: Session | null, fresh = false) {
-    r.collapsed = new Set(saved && !fresh && saved.dismissalVersion === 2 ? saved.collapsed ?? [] : []);
+    r.collapsed = new Set();
     r.restoring = true; if (listRef.current) listRef.current.style.visibility = 'hidden';
     try {
       if (saved && !fresh) {
-        try { for (let i = 0; i < Math.min(saved.pages, 100); i++) { await getPage(i > 0, { batch: saved.batch, offset: i * PAGE_SIZE }); if (r.feed?.next === null) break; } }
+        try {
+          if (saved.legacyDismissals?.length) await api(`/api/feed/${saved.batch}/hide-seen`, {action: saved.batch, ids: saved.legacyDismissals});
+          for (let i = 0; i < Math.min(saved.pages, 100); i++) { await getPage(i > 0, { batch: saved.batch, offset: i * PAGE_SIZE }); if (r.feed?.next === null) break; }
+        }
         catch { setFeed(null); await getPage(false); }
       } else {
         await getPage(false);
@@ -354,22 +357,25 @@ export function App() {
     r.hidingViewed = true; setHidingViewed(true);
     try {
       await flush();
-      const result = await api<{ids: string[]}>(`/api/feed/${batch}/seen`);
+      if (Object.keys(r.outbox).length) throw new Error(t('feed.syncBeforeHide'));
+      const action = crypto.randomUUID();
+      const result = await api<{ids: string[]}>(`/api/feed/${batch}/hide-seen`, {action});
       if (r.feed?.batch !== batch || r.prefs.view !== 'feed') return;
       const before = r.items, y = scrollY;
-      const localSeen = before.filter(a => a.seen || r.outbox[a.id] === true).map(a => a.id);
-      const ids = [...new Set([...result.ids, ...localSeen])].filter(id => !r.collapsed.has(id));
+      const ids = result.ids.filter(id => !r.collapsed.has(id));
       if (!ids.length) return;
       const hidden = new Set(ids);
       ids.forEach(id => r.collapsed.add(id));
       flushSync(() => setItems(before.filter(a => !hidden.has(a.id))));
       window.scrollTo(0, 0); save(); watch();
       notify(t('feed.hiddenViewed', { n: ids.length }), { action: { label: t('toast.undo'), onAction: async () => {
-        if (r.feed?.batch !== batch) return;
-        ids.forEach(id => r.collapsed.delete(id));
-        const snapshot: Session = {preferences: {...r.prefs}, batch, pages: r.pages, position: null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, collapsed: [...r.collapsed], dismissalVersion: 2};
-        await loadView(snapshot);
-        window.scrollTo(0, y); save(); watch();
+        try {
+          await api('/api/feed/undo-hide-seen', {action});
+          if (r.feed?.batch !== batch) return;
+          const snapshot: Session = {preferences: {...r.prefs}, batch, pages: r.pages, position: null, seenBefore: r.feed.seenBefore, revision: r.feed.revision};
+          await loadView(snapshot);
+          window.scrollTo(0, y); save(); watch();
+        } catch (error) { setMessage(error instanceof Error ? error.message : t('error.load')); }
       } } });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t('error.load'));
@@ -631,8 +637,8 @@ export function App() {
   function dismissSetup() { localStorage.setItem(SETUP_DISMISSED, '1'); setSetupDismissed(true); }
 
   const view = prefs.view;
-  const total = feed?.total ?? 0;
-  const viewed = Math.max(0, total - unseen - r.collapsed.size);
+  const total = Math.max(0, (feed?.total ?? 0) - r.collapsed.size);
+  const viewed = Math.max(0, total - unseen);
   const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
   const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
   const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
@@ -655,7 +661,7 @@ export function App() {
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          {!hotOpen && view === 'feed' && total > 0 && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} onClick={() => setCounterOpen(true)}>{total-unseen}/{total}</button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
+          {!hotOpen && view === 'feed' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }

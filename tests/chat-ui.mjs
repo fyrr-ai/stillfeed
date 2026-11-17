@@ -43,17 +43,31 @@ try{
   const activeBatch=await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')).batch);
   const hiddenLater=sql('SELECT article_id FROM batch_items WHERE batch_id=? AND ordinal=60',[activeBatch])[0][0];
   await post('/api/seen',{ids:[hiddenLater],seen:true});await p.reload();await p.locator('#feed .feed-card').first().waitFor();
+  await p.addInitScript(()=>{const id=sessionStorage.getItem('test-legacy-hide');if(!id)return;const key='stillfeed-session',s=JSON.parse(sessionStorage.getItem(key));s.collapsed=[id];s.dismissalVersion=2;sessionStorage.setItem(key,JSON.stringify(s));sessionStorage.removeItem('test-legacy-hide');});
+  await p.evaluate(id=>sessionStorage.setItem('test-legacy-hide',id),retained);
+  await p.reload();await p.locator('#feed .feed-card').first().waitFor();
+  check(width+': prior explicit hides survive the upgrade',sql('SELECT 1 FROM feed_dismissals WHERE article_id=?',[retained]).length===1&&await p.locator('#feed [data-id="'+retained+'"]').count()===0);
+  await post('/api/feed/undo-hide-seen',{action:activeBatch});await p.reload();await p.locator('#feed [data-id="'+retained+'"]').waitFor();
   await p.locator('#readCount').click();
   await p.waitForFunction(()=>document.querySelector('#hideViewed')&&!document.querySelector('#hideViewed').disabled);
   const first=await p.locator('#feed .feed-card.seen').first().getAttribute('data-id');await post('/api/article/'+first+'/saved',{saved:true});
+  const totalBeforeHide=Number((await p.locator('#readCount').innerText()).split('/')[1].trim());
+  check(width+': counter visibly offers a menu',await p.locator('#readCount svg').count()===1&&await p.locator('.batch-count-label').isVisible());
   await p.locator('#hideViewed').click();await p.locator('.toast-title').filter({hasText:'Hidden'}).waitFor();check(width+': explicit hide removes seen cards',await p.locator('#feed .feed-card.seen').count()===0);
-  check(width+': hide includes unseen pages',await p.evaluate(id=>JSON.parse(sessionStorage.getItem('stillfeed-session')).collapsed.includes(id),hiddenLater));
+  check(width+': hide includes unloaded pages',sql('SELECT 1 FROM feed_dismissals WHERE article_id=?',[hiddenLater]).length===1);
+  const hiddenCount=sql('SELECT COUNT(*) FROM batch_items b JOIN feed_dismissals d ON d.article_id=b.article_id WHERE b.batch_id=?',[activeBatch])[0][0];
+  check(width+': hiding reduces the current batch denominator',await p.locator('#readCount').innerText().then(x=>x.trim()==='0/'+(totalBeforeHide-hiddenCount)));
+  const fresh=await fetch(base+'/api/feed').then(r=>r.json());
+  check(width+': a fresh batch keeps dismissed items hidden',fresh.total===totalBeforeHide-hiddenCount);
+  await p.screenshot({path:'/tmp/stillfeed-batch-'+width+'.png'});
   while(await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')).pages)<3){const response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('offset='));await p.locator('#loadMore').evaluate(el=>el.click());await response;}
   check(width+': hidden offscreen row does not reappear on pagination',await p.locator('#feed [data-id="'+hiddenLater+'"]').count()===0);
   check(width+': hiding does not unsave bookmark',sql('SELECT 1 FROM saved WHERE article_id=?',[first]).length===1);
   await p.getByRole('button',{name:'Undo',exact:true}).click();await p.locator('#feed [data-id="'+first+'"]').waitFor();
   await p.locator('#feed [data-id="'+hiddenLater+'"]').waitFor();check(width+': Undo also restores newly loaded hidden rows',await p.locator('#feed [data-id="'+hiddenLater+'"]').count()===1);
   check(width+': Undo restores hidden row',await p.locator('#feed [data-id="'+first+'"]').count()===1);
+  check(width+': Undo restores the batch size',Number((await p.locator('#readCount').innerText()).split('/')[1].trim())===totalBeforeHide);
+  check(width+': Undo restores future batches',(await fetch(base+'/api/feed').then(r=>r.json())).total===totalBeforeHide);
   await p.locator('#feedDiscuss').click();await p.locator('#chatPanel').waitFor();await p.getByRole('textbox',{name:'Your question',exact:true}).waitFor();
   await p.waitForFunction(()=>!document.querySelector('#chatPanel textarea').disabled);
   await p.getByRole('textbox',{name:'Your question',exact:true}).fill('Which ideas connect?');await p.getByRole('button',{name:'Send question',exact:true}).click();
@@ -91,6 +105,14 @@ try{
   }
   await p.screenshot({path:path.join(tmpdir(),'stillfeed-chat-compact-'+width+'.png'),fullPage:true});
   await p.getByRole('button',{name:'Close chat',exact:true}).click();await p.locator('#chatPanel').waitFor({state:'hidden'});
+  if(width===1280){
+    await p.goto(base);await p.locator('#feed .feed-card').first().waitFor();
+    const allBatch=await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')).batch);await post('/api/seen-batch',{batch:allBatch});
+    await p.reload();await p.locator('#readCount').click();await p.locator('#hideViewed').click();
+    await p.waitForFunction(()=>document.querySelector('#readCount')?.textContent==='0/0');
+    check('empty batch keeps its counter visible',await p.locator('#readCount').isVisible());
+    await p.getByRole('button',{name:'Undo',exact:true}).click();await p.locator('#feed .feed-card').first().waitFor();
+  }
   check(width+': no browser errors',errors.length===0);await ctx.close();
  }
  console.log('Chat UI passed');

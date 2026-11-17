@@ -102,8 +102,6 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(path==='/api/x-accounts')return json(sources.accounts(store));
         // Status only, never secrets.
         if(path==='/api/config')return json({language:language(),ai:describe()??{provider:null,model:null},x:{configured:Boolean(process.env.SOCIALDATA_API_KEY)}});
-        const batchSeen=/^\/api\/feed\/([a-f0-9-]{36})\/seen$/.exec(path);
-        if(batchSeen)return json({ids:store.seenInBatch(batchSeen[1]!)});
         const chat=/^\/api\/chat\/([a-f0-9]{32})$/.exec(path);
         if(chat)return json(chats.view(chat[1]!));
         if(path==='/api/feed') {
@@ -129,6 +127,16 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
       }
       if(request.method==='POST') {
         const value=await body(request);
+        const hideSeen=/^\/api\/feed\/([a-f0-9-]{36})\/hide-seen$/.exec(path);
+        if(hideSeen){
+          if(typeof value.action!=='string'||!/^[a-f0-9-]{36}$/.test(value.action))throw new Error('Invalid hide action');
+          if(value.ids!==undefined&&(!Array.isArray(value.ids)||value.ids.length>100000||!value.ids.every((id:unknown)=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id))))throw new Error('Invalid hidden rows');
+          return json({ids:store.hideSeen(hideSeen[1]!,value.action,value.ids)});
+        }
+        if(path==='/api/feed/undo-hide-seen'){
+          if(typeof value.action!=='string'||!/^[a-f0-9-]{36}$/.test(value.action))throw new Error('Invalid hide action');
+          store.undoHideSeen(value.action);return json({ok:true});
+        }
         if(path==='/api/chat')return json(chats.open(chatContext(value.context)));
         const chat=/^\/api\/chat\/([a-f0-9]{32})\/(messages|cancel|clear|retry)$/.exec(path);
         if(chat){

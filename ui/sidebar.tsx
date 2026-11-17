@@ -120,7 +120,7 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
       </Section>
 
       <Section id="history" title={t('settings.history')} icon="hourglass">
-        <label className="side-row"><span><b>{t('settings.history.days')}</b></span><input id="historyHours" className="side-number" type="number" min="1" max="90" value={days} onChange={e => setDays(e.target.value)} onBlur={() => { if (Number(days) * 24 !== settings.windowHours) void apply({ windowHours: Number(days) * 24 }); }} /></label>
+        <label className="side-row"><span><b>{t('settings.history.days')}</b><small>{t('settings.history.days.hint')}</small></span><input id="historyHours" className="side-number" type="number" min="1" max="90" value={days} onChange={e => setDays(e.target.value)} onBlur={() => { if (Number(days) * 24 !== settings.windowHours) void apply({ windowHours: Number(days) * 24 }); }} /></label>
         <label className="side-row"><span><b>{t('settings.history.keep')}</b><small>{t('settings.history.keep.hint')}</small></span><input id="retentionDays" className="side-number" type="number" min="7" max="365" value={retention} onChange={e => setRetention(e.target.value)} onBlur={() => { if (Number(retention) !== settings.retentionDays) void apply({ retentionDays: Number(retention) }); }} /></label>
         {error && <p className="side-error" role="alert">{error}</p>}
       </Section>

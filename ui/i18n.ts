@@ -33,7 +33,9 @@ export const en = {
   'feed.hiddenViewed': 'Hidden {n} seen updates',
   // Top bar and tabs
   'app.name': 'Feed',
-  'feed.readCount': '{read} of {total} read',
+  'feed.readCount': '{read} seen of {total} in this batch',
+  'feed.batchActions': 'Batch actions',
+  'feed.syncBeforeHide': 'Seen updates are still syncing. Please try hiding them again.',
   'app.tagline': 'Your daily signal',
   'app.title.thread': 'Thread',
   'app.title.article': '{title}',
@@ -302,7 +304,8 @@ export const en = {
   'settings.updated.importFailed': 'Last import failed',
 
   'settings.history': 'History',
-  'settings.history.days': 'Days in feed',
+  'settings.history.days': 'New updates (days)',
+  'settings.history.days.hint': 'Older updates stay until you hide them or history expires.',
   'settings.history.keep': 'Keep history',
   'settings.history.keep.hint': 'Days; Saved is kept forever.',
 

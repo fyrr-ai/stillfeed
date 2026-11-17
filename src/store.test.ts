@@ -1,4 +1,5 @@
 import {test,expect,afterEach} from 'bun:test';
+import {randomUUID} from 'node:crypto';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -48,15 +49,50 @@ test('marking a whole batch seen returns only the newly seen ids and is idempote
  }finally{store.close();}
 });
 
-test('seen IDs cover the entire batch including unloaded pages and preserve bookmarks',async()=>{
+test('explicit hiding covers unloaded pages, retries safely and preserves bookmarks',async()=>{
  const {dir}=await fixture(),store=new Store(dir);
  try {
   load(store);const page=store.feed(prefs),visible=page.items.map(a=>a.id),offscreen=store.feed(prefs,page.batch,30).items[0]!.id;
   store.mark([visible[0]!,offscreen],true);store.save(offscreen,true);
-  expect(page.items).toHaveLength(30);expect(store.seenInBatch(page.batch)).toContain(offscreen);
-  expect(store.seenInBatch(page.batch)).toHaveLength(2);
+  const action=randomUUID(),hidden=store.hideSeen(page.batch,action);
+  expect(page.items).toHaveLength(30);expect(hidden).toContain(offscreen);expect(hidden).toHaveLength(2);
+  expect(store.feed(prefs,page.batch).dismissed.sort()).toEqual(hidden.sort());
+  expect(store.feed(prefs).total).toBe(73);
+  store.mark([visible[1]!],true);expect(store.hideSeen(page.batch,action).sort()).toEqual(hidden.sort());
+  const later=randomUUID();expect(store.hideSeen(page.batch,later)).toEqual([visible[1]!]);
+  store.undoHideSeen(action);expect(store.feed(prefs).total).toBe(74);
+  expect(store.hideSeen(page.batch,action)).toEqual([]); // Retry after Undo cannot reapply it.
+  store.undoHideSeen(later);expect(store.feed(prefs).total).toBe(75);
   expect(store.feed(prefs,page.batch).total).toBe(75);
   expect(store.feed({...prefs,savedOnly:true}).items.some(a=>a.id===offscreen)).toBe(true);
-  expect(()=>store.seenInBatch('missing')).toThrow('expired');
+  expect(()=>store.hideSeen('missing',randomUUID())).toThrow('expired');
+  const saved=store.feed({...prefs,savedOnly:true});expect(()=>store.hideSeen(saved.batch,randomUUID())).toThrow('Saved');
+ }finally{store.close()}
+});
+
+test('new batches carry older outstanding rows, apply current filters and keep dismissals after reopening',async()=>{
+ const {dir}=await fixture();let store=new Store(dir);
+ try {
+  load(store);const first=store.feed(prefs),seen=first.items[0]!.id,hidden=first.items[1]!.id;
+  store.mark([seen,hidden],true);store.save(hidden,true);store.hideSeen(first.batch,randomUUID());
+  store.mark([seen],false); // Seen state and explicit dismissal are separate.
+  store.ingest([{url:'https://example.com/new',title:'New article',source:'Test journal',site_id:'test',published_at:'2026-11-20T04:30:00Z'}],'2026-11-20T05:00:00Z');
+  const next=store.feed(prefs);expect(next.total).toBe(74);expect(next.items[0]?.url).toBe('https://example.com/new');
+  expect(store.feed({...prefs,q:'Article 23'}).total).toBe(1);
+  expect(store.feed({...prefs,kind:'x'}).total).toBe(0);
+  const source=(store.sources() as {id:string}[])[0]!.id;store.setSource(source,false);expect(store.feed(prefs).total).toBe(0);store.setSource(source,true);
+  store.close();store=new Store(dir);expect(store.feed(prefs).total).toBe(74);
+  store.db.exec('DELETE FROM batches');expect(store.feed(prefs).total).toBe(74);
+  expect(store.feed({...prefs,savedOnly:true}).items[0]?.id).toBe(hidden);
+  expect(store.feed(prefs).items.every(a=>a.id!==seen&&a.id!==hidden)).toBe(true);
+ }finally{store.close()}
+});
+
+test('migration preserves only explicitly hidden legacy rows, without hiding other seen rows',async()=>{
+ const {dir}=await fixture(),store=new Store(dir);try{
+  load(store);const page=store.feed(prefs),first=page.items[0]!.id,second=page.items[1]!.id,unseen=page.items[2]!.id;
+  store.mark([first,second],true);const action=randomUUID();
+  expect(store.hideSeen(page.batch,action,[first,unseen,'unknown'])).toEqual([first]);
+  expect(store.feed(prefs).total).toBe(74);expect(store.feed(prefs).items.some(a=>a.id===second)).toBe(true);
  }finally{store.close()}
 });

@@ -2,11 +2,10 @@ import type { Article, Filters } from '../src/store';
 import { t } from './i18n';
 
 export type { Article };
-export type Feed = { items: Article[]; total: number; unseen: number; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
+export type Feed = { items: Article[]; total: number; unseen: number; dismissed: string[]; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
 export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
 export type Position = { id: string; offset: number };
-export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; collapsed?: string[]; dismissalVersion?: 2 };
-/** After this long away, the feed is rebuilt so everything seen meanwhile disappears. */
+export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; legacyDismissals?: string[] };
 export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
 export type SourceKind = 'rss' | 'youtube' | 'web' | 'x';
 export type Source = { id: string; name: string; enabled: number; articles: number; error?: string | null; url?: string; kind?: SourceKind };
@@ -19,7 +18,7 @@ export type Status = { generatedAt: string; revision: number; refresh: string; i
 export type HotItem = Article & { reason: string };
 export type Reading = { title: string; author: string; html: string; url: string };
 
-// Seen updates leave the feed by default; they disappear on the next load, never under your finger.
+// Visibility records seen state; dismissing rows is always an explicit action.
 export const defaults: Preferences = { view: 'feed', scope: 'ai', kind: 'all', q: '', hideSeen: true };
 export const PAGE_SIZE = 30;
 
@@ -60,11 +59,13 @@ export function loadPreferences(): Preferences {
 export function storePreferences(preferences: Preferences) { localStorage.setItem('stillfeed-preferences', JSON.stringify({ ...preferences, autoSeen: true })); }
 export function loadSession(key: string, preferences?: Preferences, maxAge = Infinity): Session | null {
   try {
-    const session = JSON.parse(sessionStorage.getItem(key) || 'null') as Session | null;
+    const session = JSON.parse(sessionStorage.getItem(key) || 'null') as (Session & {dismissalVersion?:number;collapsed?:unknown}) | null;
     if (!session || !session.preferences || typeof session.batch !== 'string' || !Number.isInteger(session.pages) || session.pages < 1) return null;
     session.preferences.view ??= 'feed';
     if (preferences && JSON.stringify(session.preferences) !== JSON.stringify(preferences)) return null;
     if (Date.now() - (session.at ?? 0) > maxAge) return null;
+    // Preserve explicit hides made by the previous UI; the next save writes only the batch ID.
+    if(session.dismissalVersion===2&&Array.isArray(session.collapsed))session.legacyDismissals=session.collapsed.filter((id:unknown):id is string=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id));
     return session;
   } catch { return null; }
 }

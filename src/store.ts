@@ -46,8 +46,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS article_sources(article_id TEXT NOT NULL REFERENCES articles(id),source_id TEXT NOT NULL REFERENCES sources(id),PRIMARY KEY(article_id,source_id));
       CREATE TABLE IF NOT EXISTS seen(article_id TEXT PRIMARY KEY REFERENCES articles(id),at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS saved(article_id TEXT PRIMARY KEY REFERENCES articles(id),at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS feed_dismissals(article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,action_id TEXT NOT NULL,at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS feed_dismissals_action ON feed_dismissals(action_id);
+      CREATE TABLE IF NOT EXISTS feed_hide_actions(id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,created INTEGER NOT NULL,revision INTEGER NOT NULL,filters TEXT NOT NULL,total INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batch_items(batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,article_id TEXT NOT NULL REFERENCES articles(id),PRIMARY KEY(batch_id,ordinal));
+      CREATE TABLE IF NOT EXISTS feed_queue(article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE);
       CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(article_id UNINDEXED,title,source,body,tokenize='unicode61');
       CREATE TABLE IF NOT EXISTS x_accounts(handle TEXT PRIMARY KEY,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS seeded(key TEXT PRIMARY KEY);
@@ -57,6 +61,10 @@ export class Store {
       PRAGMA user_version=2;`);
     const columns=new Set((this.db.query('PRAGMA table_info(articles)').all() as {name:string}[]).map(c=>c.name));
     for(const name of ['content','summary','author','image_url','ai_reason'])if(!columns.has(name))this.db.exec(`ALTER TABLE articles ADD COLUMN ${name} TEXT`);
+    if(!this.meta('feedQueueMigrated'))this.db.transaction(()=>{
+      this.db.exec("INSERT OR IGNORE INTO feed_queue SELECT DISTINCT i.article_id FROM batch_items i JOIN batches b ON b.id=i.batch_id WHERE COALESCE(json_extract(b.filters,'$.savedOnly'),0)=0");
+      this.setMeta('feedQueueMigrated','1');
+    })();
   }
   meta(key: string) { return (this.db.query('SELECT value FROM meta WHERE key=?').get(key) as {value:string}|null)?.value; }
   setMeta(key: string, value: string) { this.db.query('INSERT OR REPLACE INTO meta VALUES(?,?)').run(key,value); }
@@ -101,10 +109,25 @@ export class Store {
       return ids;
     })();
   }
-  seenInBatch(batchId: string): string[] {
-    if (!this.db.query('SELECT 1 FROM batches WHERE id=?').get(batchId)) throw new Error('View expired. Refresh to continue.');
-    const rows = this.db.query('SELECT i.article_id AS id FROM batch_items i JOIN seen s ON s.article_id=i.article_id WHERE i.batch_id=? ORDER BY i.ordinal').all(batchId) as {id: string}[];
-    return rows.map(row => row.id);
+  /** Dismissals belong to an explicit action, so retries converge and Undo affects only that action. */
+  hideSeen(batchId: string, actionId: string, onlyIds?: string[]) {
+    return this.db.transaction(() => {
+      const batch = this.db.query('SELECT filters FROM batches WHERE id=?').get(batchId) as {filters:string}|null;
+      if (!batch) throw new Error('View expired. Refresh to continue.');
+      if (JSON.parse(batch.filters).savedOnly) throw new Error('Saved items cannot be hidden');
+      const action = this.db.query('SELECT batch_id FROM feed_hide_actions WHERE id=?').get(actionId) as {batch_id:string}|null;
+      if(action && action.batch_id!==batchId)throw new Error('Hide action belongs to another batch');
+      if(!action){
+        this.db.query('INSERT INTO feed_hide_actions VALUES(?,?,?)').run(actionId,batchId,Date.now());
+        this.db.query(`INSERT OR IGNORE INTO feed_dismissals(article_id,action_id,at)
+          SELECT b.article_id,?,? FROM batch_items b JOIN seen s ON s.article_id=b.article_id WHERE b.batch_id=?
+          AND (? IS NULL OR b.article_id IN (SELECT value FROM json_each(?)))`).run(actionId,Date.now(),batchId,onlyIds?JSON.stringify(onlyIds):null,onlyIds?JSON.stringify(onlyIds):null);
+      }
+      return (this.db.query('SELECT article_id AS id FROM feed_dismissals WHERE action_id=?').all(actionId) as {id:string}[]).map(row=>row.id);
+    })();
+  }
+  undoHideSeen(actionId: string) {
+    this.db.query('DELETE FROM feed_dismissals WHERE action_id=?').run(actionId);
   }
   mark(ids: string[], on: boolean) {
     this.db.transaction(()=> {for (const id of ids) {
@@ -142,7 +165,9 @@ export class Store {
       const revision=filters.revision || Number(this.meta('revision')||0);
       const generated=date(this.meta('generatedAt'),Date.now());
       const cutoff=generated-filters.hours*3600000, before=filters.seenBefore||Date.now();
-      const conditions=['a.sort_at>=?','a.sort_at<=?','a.created_revision<=?','EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)'];
+      // Keep the outstanding queue even after its original time window moves on. Current
+      // source, format and search filters still apply to both old and new entries.
+      const conditions=['(a.sort_at>=? OR EXISTS(SELECT 1 FROM feed_queue q WHERE q.article_id=a.id))','a.sort_at<=?','a.created_revision<=?','EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)','NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=a.id)'];
       const values:(string|number)[]=[cutoff,generated,revision];
       if(filters.savedOnly){conditions.splice(0,conditions.length,'a.created_revision<=?','EXISTS(SELECT 1 FROM saved s WHERE s.article_id=a.id)');values.splice(0,values.length,revision);}
       if(filters.savedOnly && filters.savedTopic){
@@ -158,15 +183,18 @@ export class Store {
       batch={id:randomUUID(),created:before,revision,filters:JSON.stringify(filters),total:ids.length};
       this.db.transaction(()=> {
         this.db.query('DELETE FROM batches WHERE created<?').run(Date.now()-7*86400000);
+        this.db.query('DELETE FROM feed_hide_actions WHERE at<?').run(Date.now()-7*86400000);
         this.db.query('INSERT INTO batches VALUES(?,?,?,?,?)').run(batch!.id,before,revision,batch!.filters,ids.length);
         const insert=this.db.query('INSERT INTO batch_items VALUES(?,?,?)');
         ids.forEach((row,i)=>insert.run(batch!.id,i,row.id));
+        if(!filters.savedOnly){const enqueue=this.db.query('INSERT OR IGNORE INTO feed_queue VALUES(?)');ids.forEach(row=>enqueue.run(row.id));}
       })();
     }
     const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT 30`).all(batch.id,offset) as RecordData[];
     const items:Article[]=rows.map(articleView);
-    const unseen=(this.db.query('SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id)').get(batch.id) as {n:number}).n;
-    return {items,total:batch.total,unseen,batch:batch.id,seenBefore:batch.created,revision:batch.revision,filters:JSON.parse(batch.filters),next:offset+items.length<batch.total?offset+items.length:null,generatedAt:this.meta('generatedAt')};
+    const unseen=(this.db.query('SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) AND (? OR NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id))').get(batch.id,Number(Boolean(JSON.parse(batch.filters).savedOnly))) as {n:number}).n;
+    const dismissed=JSON.parse(batch.filters).savedOnly?[]:(this.db.query('SELECT b.article_id AS id FROM batch_items b JOIN feed_dismissals d ON d.article_id=b.article_id WHERE b.batch_id=?').all(batch.id) as {id:string}[]).map(row=>row.id);
+    return {items,total:batch.total,unseen,dismissed,batch:batch.id,seenBefore:batch.created,revision:batch.revision,filters:JSON.parse(batch.filters),next:offset+items.length<batch.total?offset+items.length:null,generatedAt:this.meta('generatedAt')};
   }
   close(){this.db.close();}
 }
