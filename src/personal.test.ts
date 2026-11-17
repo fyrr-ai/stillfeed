@@ -10,10 +10,32 @@ const filters:Filters={scope:'all',kind:'all',q:'',hideSeen:false,hours:72,perso
 function fixture(count=75){
   const directory=mkdtempSync(join(tmpdir(),'stillfeed-personal-')),store=new Store(directory),personal=new Personal(store),now=Date.now();
   store.ingest(Array.from({length:count},(_,i)=>({url:`https://example.com/${i}`,title:`Article ${i}`,source:'Journal',published_at:new Date(now-i*60000).toISOString(),ai_is_related:i%2===0,summary:'Practical coding agent technique.'})),new Date(now).toISOString());
+  store.feed({...filters,personalOnly:false});
   personal.configure('Coding agents, practical data engineering. Skip marketing.');
   return {store,personal,directory,close(){store.close();rmSync(directory,{recursive:true,force:true});}};
 }
 const accept=async(_:string,candidates:Candidate[]):Promise<Rating[]>=>candidates.map((c,i)=>({id:c.id,score:i===0?3:2,reason:'A concrete technique for coding agents.'}));
+
+test('Hot rates and shows only its actual Feed snapshot, including its filters and hidden state',async()=>{
+  const {store,personal,close}=fixture(8);try{
+    const baseFilters={...filters,personalOnly:false,scope:'ai' as const,q:'Article 2'};
+    const base=store.feed(baseFilters);expect(base.total).toBe(1);expect(personal.status().total).toBe(1);
+    let offered:Candidate[]=[];await personal.work(async(i,c)=>{offered=c;return accept(i,c);},randomUUID());
+    expect(offered.map(c=>c.id)).toEqual(base.items.map(a=>a.id));
+    const outside=store.feed({...filters,personalOnly:false,q:'Article 3'}).items[0]!;
+    store.db.query('INSERT INTO personal_ratings VALUES(?,?,?,?,?,?)').run(outside.id,store.meta('personalProfile')!,3,'Cached from the old archive selection.',Date.now(),'test');
+    const hot=store.feed({...filters,personalBatch:base.batch});expect(hot.total).toBe(1);expect(hot.items[0]?.id).toBe(base.items[0]?.id);
+    expect(personal.status().total).toBe(1);
+    store.ingest([{url:'https://example.com/new',title:'Article 2 new',source:'Journal',published_at:new Date().toISOString(),ai_is_related:true}],new Date().toISOString());
+    expect(await personal.work(accept,randomUUID())).toBe(0);expect(store.feed(filters,hot.batch).total).toBe(1);
+    const next=store.feed(baseFilters);expect(next.total).toBe(2);expect(personal.status().pending).toBe(1);
+    await personal.work(accept,randomUUID());expect(store.feed({...filters,personalBatch:next.batch}).total).toBe(2);
+    store.mark([base.items[0]!.id],true);store.hideSeen(base.batch,randomUUID());
+    expect(store.feed({...filters,personalBatch:base.batch}).total).toBe(0);expect(personal.status().total).toBe(0);
+    store.save(outside.id,true);const saved=store.feed({...filters,personalOnly:false,savedOnly:true});
+    expect(()=>store.feed({...filters,personalBatch:saved.batch})).toThrow('Feed batch');
+  }finally{close()}
+});
 
 test('Hot rates beyond the old top 100, has no accepted-item quota, and paginates a frozen selection',async()=>{
   const {store,personal,close}=fixture(135);try{

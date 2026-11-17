@@ -266,6 +266,10 @@ try{
     await reveal();await p.locator('#viewHot').click();await p.locator('#feed .card-note').first().waitFor();
     check('Hot shows personal matches with their reasons',await p.locator('#feed .feed-card').count()===2&&await p.locator('#feed .card-note').first().innerText().then(t=>t.includes('Důvod 0')));
     check('Hot has no count badge',await p.locator('#viewHot .tab-count').count()===0);
+    const parentBatch=await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session-feed')).batch);
+    check('Hot is bound to the actual Feed snapshot',await p.evaluate(id=>JSON.parse(sessionStorage.getItem('stillfeed-session-hot')).personalBatch===id,parentBatch));
+    const remainingInFeed=sql('SELECT COUNT(*) FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)',[parentBatch])[0][0];
+    check('Hot reviews only the active Feed, not the archive',(await request('/api/personal')).status.total===remainingInFeed);
     await sleep(1500);await p.reload();await p.locator('#feed .card-note').first().waitFor();check('seen Hot items stay visible after reload',await p.locator('#feed .feed-card').count()===2&&await p.locator('#viewHot').getAttribute('aria-pressed')==='true');
     check('Hot offers no separate dismissal control',await p.locator('.card-note-dismiss').count()===0);
     await p.locator('#feed .feed-card').first().locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});

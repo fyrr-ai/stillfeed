@@ -112,6 +112,7 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
           if(topic!==null&&(p.get('saved')!=='1'||!/^([a-f0-9]{32}|ungrouped)$/.test(topic)))throw new Error('Invalid saved topic');
           const filters:Filters={scope:scope as Filters['scope'],kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',personalOnly:p.get('personal')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
           if(topic)filters.savedTopic=topic;
+          if(p.has('from')){if(!filters.personalOnly||!/^[a-f0-9-]{36}$/.test(p.get('from')!))throw new Error('Invalid Hot feed batch');filters.personalBatch=p.get('from')!;}
           return json(store.feed(filters,p.get('batch')||undefined,integer(p.get('offset'),0,0,100000)));
         }
         const entry=/^\/api\/article\/([a-f0-9]{32})$/.exec(path);

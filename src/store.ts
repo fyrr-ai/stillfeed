@@ -10,7 +10,7 @@ export function refreshHours(every:number,nightPause:boolean){
   const hours:number[]=[];for(let h=nightPause?5:0;h<(nightPause?23:24);h+=every)hours.push(h);return hours;
 }
 export type RecordData = Record<string, unknown>;
-export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number };
+export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number; personalBatch?:string };
 export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null; personalReason?:string };
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,32);
 export function canonical(value: unknown): string {
@@ -51,6 +51,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS feed_hide_actions(id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,created INTEGER NOT NULL,revision INTEGER NOT NULL,filters TEXT NOT NULL,total INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS batch_items(batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,article_id TEXT NOT NULL REFERENCES articles(id),PRIMARY KEY(batch_id,ordinal));
+      CREATE INDEX IF NOT EXISTS batch_items_membership ON batch_items(batch_id,article_id);
       CREATE TABLE IF NOT EXISTS feed_queue(article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS personal_ratings(article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,profile TEXT NOT NULL,score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 3),reason TEXT NOT NULL,at INTEGER NOT NULL,model TEXT NOT NULL,PRIMARY KEY(article_id,profile));
       CREATE INDEX IF NOT EXISTS personal_rating_profile ON personal_ratings(profile,score,article_id);
@@ -67,6 +68,10 @@ export class Store {
       this.db.exec("INSERT OR IGNORE INTO feed_queue SELECT DISTINCT i.article_id FROM batch_items i JOIN batches b ON b.id=i.batch_id WHERE COALESCE(json_extract(b.filters,'$.savedOnly'),0)=0");
       this.setMeta('feedQueueMigrated','1');
     })();
+    if(!this.meta('personalFeedBatch')){
+      const base=this.db.query("SELECT id FROM batches WHERE COALESCE(json_extract(filters,'$.savedOnly'),0)=0 AND COALESCE(json_extract(filters,'$.personalOnly'),0)=0 ORDER BY created DESC LIMIT 1").get() as {id:string}|null;
+      if(base)this.setMeta('personalFeedBatch',base.id);
+    }
     if(!this.meta('personalHotMigrated'))this.db.transaction(()=>{
       this.db.exec('DROP TABLE IF EXISTS hot_picks; DROP TABLE IF EXISTS hot_dismissed; DROP TABLE IF EXISTS opened;');
       this.setMeta('personalHotMigrated','1');
@@ -164,12 +169,22 @@ export class Store {
   }
   article(id:string) {return this.db.query('SELECT * FROM articles WHERE id=?').get(id) as RecordData|null;}
   feed(filters:Filters, batchId?:string, offset=0) {
-    let batch: {id:string;created:number;revision:number;filters:string;total:number}|null=null;
+    type Batch={id:string;created:number;revision:number;filters:string;total:number};
+    let batch:Batch|null=null;
     if(batchId) {
-      batch=this.db.query('SELECT * FROM batches WHERE id=?').get(batchId) as typeof batch;
+      batch=this.db.query('SELECT * FROM batches WHERE id=?').get(batchId) as Batch|null;
       if(!batch)throw new Error('View expired. Refresh to continue.');
+      const frozen=JSON.parse(batch.filters) as Filters;
+      if(frozen.personalOnly&&!frozen.personalBatch)throw new Error('Hot selection changed. Refresh to continue.');
     } else {
-      if(filters.personalOnly)filters={...filters,personalProfile:this.meta('personalProfile')||'',personalRevision:Number(this.meta('personalRevision')||0)};
+      if(filters.personalOnly){
+        let parent=filters.personalBatch||this.meta('personalFeedBatch');
+        if(!parent||!this.db.query('SELECT 1 FROM batches WHERE id=?').get(parent))parent=this.feed({...filters,personalOnly:false,personalBatch:undefined}).batch;
+        const base=this.db.query('SELECT filters FROM batches WHERE id=?').get(parent) as {filters:string};
+        const baseFilters=JSON.parse(base.filters) as Filters;
+        if(baseFilters.savedOnly||baseFilters.personalOnly)throw new Error('Hot must use a Feed batch');
+        filters={...filters,personalBatch:parent,personalProfile:this.meta('personalProfile')||'',personalRevision:Number(this.meta('personalRevision')||0)};
+      }
       const revision=filters.revision || Number(this.meta('revision')||0);
       const generated=date(this.meta('generatedAt'),Date.now());
       const cutoff=generated-filters.hours*3600000, before=filters.seenBefore||Date.now();
@@ -184,7 +199,7 @@ export class Store {
       }
       if(filters.scope==='ai'&&!filters.savedOnly)conditions.push('a.ai=1');
       if(filters.personalOnly&&!filters.savedOnly){
-        conditions.push('EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=? AND p.score>=2)');values.push(filters.personalProfile!);
+        conditions.push('EXISTS(SELECT 1 FROM batch_items i WHERE i.batch_id=? AND i.article_id=a.id)','EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=? AND p.score>=2)');values.push(filters.personalBatch!,filters.personalProfile!);
       }
       if(filters.kind!=='all'){conditions.push('a.kind=?');values.push(filters.kind);}
       if(filters.hideSeen){conditions.push('(v.at IS NULL OR v.at>?)');values.push(before);}
@@ -204,6 +219,7 @@ export class Store {
       })();
     }
     const frozenFilters=JSON.parse(batch.filters) as Filters;
+    if(!frozenFilters.savedOnly)this.setMeta('personalFeedBatch',frozenFilters.personalOnly?frozenFilters.personalBatch!:batch.id);
     const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at,(SELECT reason FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) AS personal_reason FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT 30`).all(frozenFilters.personalOnly?frozenFilters.personalProfile||'':'',batch.id,offset) as RecordData[];
     const items:Article[]=rows.map(articleView);
     const hiddenCondition=frozenFilters.savedOnly?'0':'EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)';

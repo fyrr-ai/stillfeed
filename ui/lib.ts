@@ -6,7 +6,7 @@ export type { Article };
 export type Feed = { items: Article[]; total: number; unseen: number; dismissed: string[]; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
 export type Preferences = { view: 'hot' | 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
 export type Position = { id: string; offset: number };
-export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; legacyDismissals?: string[] };
+export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; legacyDismissals?: string[]; personalBatch?:string };
 export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
 export type SourceKind = 'rss' | 'youtube' | 'web' | 'x';
 export type Source = { id: string; name: string; enabled: number; articles: number; error?: string | null; url?: string; kind?: SourceKind };

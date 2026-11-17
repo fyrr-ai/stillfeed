@@ -165,7 +165,7 @@ export function App() {
     storePreferences(r.prefs);
     if (!r.feed || r.restoring || r.failedNewView || covered()) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
-    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now() };
+    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), personalBatch: r.feed.filters.personalBatch };
     sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
     sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
@@ -182,6 +182,7 @@ export function App() {
       else {
         const p = r.prefs;
         params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('personal', p.view === 'hot' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', '0');
+        if (p.view === 'hot') { const base=loadSession('stillfeed-session-feed'); if(base)params.set('from',base.batch); }
         if (p.view === 'saved' && p.savedTopic) params.set('topic', p.savedTopic);
         // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
         if (r.feed && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
@@ -229,6 +230,10 @@ export function App() {
     setTimeout(stop, 2500);
   }
   async function loadView(saved: Session | null, fresh = false) {
+    if(r.prefs.view==='hot'){
+      const base=loadSession('stillfeed-session-feed');
+      if(base&&saved?.personalBatch!==base.batch){setPrefs({...base.preferences,view:'hot'});saved=null;}
+    }
     r.collapsed = new Set();
     r.restoring = true; if (listRef.current) listRef.current.style.visibility = 'hidden';
     try {
@@ -625,8 +630,8 @@ export function App() {
           <button id="viewSaved" aria-pressed={view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          {view !== 'saved' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={!total} onClick={() => void discuss()}><Icon name="reply" size={18} /></button>
+          {view !== 'saved' && feed && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.

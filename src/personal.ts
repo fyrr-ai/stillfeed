@@ -27,13 +27,13 @@ export class Personal {
   private bump(){this.store.setMeta('personalRevision',String(Number(this.store.meta('personalRevision')||0)+1));}
   private eligible() {
     return `EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)
-      AND (a.sort_at>=? OR EXISTS(SELECT 1 FROM feed_queue q WHERE q.article_id=a.id)) AND a.sort_at<=?
+      AND EXISTS(SELECT 1 FROM batch_items i WHERE i.batch_id=? AND i.article_id=a.id)
       AND NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=a.id)`;
   }
-  private bounds(){const now=Date.parse(this.store.meta('generatedAt')||'')||Date.now();return [now-this.store.settings().windowHours*3600000,now];}
+  private batch(){return this.store.meta('personalFeedBatch')||'';}
   status() {
     const row=this.store.db.query(`SELECT COUNT(*) AS total,COUNT(p.article_id) AS rated,COALESCE(SUM(p.score>=2),0) AS matched
-      FROM articles a LEFT JOIN personal_ratings p ON p.article_id=a.id AND p.profile=? WHERE ${this.eligible()}`).get(this.store.meta('personalProfile')||'',...this.bounds()) as {total:number;rated:number;matched:number};
+      FROM articles a LEFT JOIN personal_ratings p ON p.article_id=a.id AND p.profile=? WHERE ${this.eligible()}`).get(this.store.meta('personalProfile')||'',this.batch()) as {total:number;rated:number;matched:number};
     return {...row,pending:row.total-row.rated,revision:Number(this.store.meta('personalRevision')||0),enabled:Boolean(describe()),error:this.store.meta('personalError')||null};
   }
   release(token:string){this.store.db.query("DELETE FROM meta WHERE key='personalLease' AND json_extract(value,'$.token')=?").run(token);}
@@ -45,7 +45,7 @@ export class Personal {
       if(lease&&lease.until>Date.now())return [];
       const rows=this.store.db.query(`SELECT a.id,a.title,a.source,substr(COALESCE(NULLIF(a.summary,''),NULLIF(a.content,''),json_extract(a.tweet,'$.text'),''),1,1500) AS text
         FROM articles a WHERE ${this.eligible()} AND NOT EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?)
-        ORDER BY a.sort_at DESC,a.id DESC LIMIT 30`).all(...this.bounds(),profile) as Candidate[];
+        ORDER BY a.sort_at DESC,a.id DESC LIMIT 30`).all(this.batch(),profile) as Candidate[];
       for(const row of rows){
         row.title=row.title.slice(0,320);row.source=row.source.slice(0,160);
         const reading=this.reader.cached(row.id),summary=reading?this.summaries.cached(row.id,reading):null;
