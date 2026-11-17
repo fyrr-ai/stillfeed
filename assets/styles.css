@@ -361,7 +361,7 @@ button.photo { cursor: zoom-in; }
 #articlePage.dragging { will-change: transform; }
 .article-toolbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--space-1); min-height: 48px; padding: env(safe-area-inset-top) var(--space-2) 0 var(--space-1); border-bottom: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--app-bg) 80%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .article-toolbar > b { font-size: var(--text-label); font-weight: 500; letter-spacing: -.005em; }
-#detailSave { margin-left: auto; }
+#detailDiscuss { margin-left: auto; }
 .article-toolbar .toolbar-link { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-high); font-size: var(--text-caption); font-weight: 500; transition: background-color .12s ease, border-color .12s ease; }
 .article-toolbar .toolbar-link:hover { background: var(--gray-alpha-100); border-color: var(--gray-alpha-400); }
 .reading-content { padding: var(--space-5) var(--space-4) 40px; overflow-wrap: anywhere; }
