@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Drawer, DrawerBackdrop, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle } from '@ui-sdk/react/drawer';
+import { Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from '@ui-sdk/react/popover';
 import { AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useExternalStoreRuntime, type AppendMessage, type ThreadMessageLike } from '@assistant-ui/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import type { ChatContext, ChatMessage } from '../src/chat';
@@ -15,6 +16,7 @@ function AssistantMessage() { return <MessagePrimitive.Root className="chat-mess
 function Conversation({ context, navigate }: { context: ChatContext; navigate: (id: string) => void }) {
   const [data, setData] = useState<Conversation | null>(null), [error, setError] = useState(''), [sending, setSending] = useState(false);
   const [reload, setReload] = useState(0);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const failedSend = useRef<{id: string; text: string} | null>(null);
   const running = sending || Boolean(data?.messages.some(m => m.state === 'queued' || m.state === 'working'));
   const latest = useRef(data); latest.current = data;
@@ -51,9 +53,29 @@ function Conversation({ context, navigate }: { context: ChatContext; navigate: (
   });
   const last = data?.messages.at(-1);
   const suggestions: Key[] = context.kind === 'article' ? ['chat.explain', 'chat.critique'] : ['chat.important', 'chat.connections'];
+  const scope = context.kind === 'article' ? data?.sources[0]?.kind === 'x' ? t('chat.thisPost') : t('chat.thisArticle') : context.kind === 'hot' ? t('tabs.hot') : data?.label === 'Saved' ? t('tabs.saved') : t('chat.batch');
+  const contextLabel = context.kind === 'article' ? data?.label || t('chat.loading') : t('chat.itemCount', {n: data?.count ?? 0});
   return <AssistantRuntimeProvider runtime={runtime}>
-    <div className="chat-context"><Icon name={context.kind === 'article' ? 'article' : 'inbox'} size={15} /><span>{context.kind === 'article' ? data?.label || t('reader.article') : context.kind === 'hot' ? t('tabs.hot') : data?.label === 'Saved' ? t('tabs.saved') : t('chat.batch')}{context.kind !== 'article' && data ? ` · ${data.count}` : ''}</span>
-      <button className="icon-button" aria-label={t('chat.new')} title={t('chat.new')} disabled={!data?.messages.length || running} onClick={() => void action('clear')}><Icon name="plus" size={17} /></button>
+    <div className="chat-context">
+      <Popover>
+        <PopoverTrigger className="chat-context-trigger" aria-label={t('chat.context')}>
+          <Icon name={context.kind === 'article' ? 'article' : 'inbox'} size={16} />
+          <span><b>{scope}</b><small>{contextLabel}</small></span><Icon name="chevron" size={15} />
+        </PopoverTrigger>
+        <PopoverContent className="popover chat-context-popover" side="bottom" align="start" sideOffset={6}>
+          <PopoverTitle className="popover-title">{scope}</PopoverTitle>
+          <PopoverDescription className="popover-text">{contextLabel}</PopoverDescription>
+          {context.kind === 'article' && <button className="ghost-button" onClick={() => navigate(context.id)}>{t('chat.openSource')}<Icon name="next" size={15} /></button>}
+        </PopoverContent>
+      </Popover>
+      <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
+        <PopoverTrigger className="icon-button" aria-label={t('chat.options')}><Icon name="more" size={18} /></PopoverTrigger>
+        <PopoverContent className="popover chat-options" side="bottom" align="end" sideOffset={6}>
+          <PopoverTitle className="popover-title">{t('chat.options')}</PopoverTitle>
+          <PopoverDescription className="popover-text">{data?.ai ? `${data.ai.provider} · ${data.ai.model}` : t('chat.off')}</PopoverDescription>
+          <button className="ghost-button" disabled={!data?.messages.length || running} onClick={() => { setOptionsOpen(false); void action('clear'); }}><Icon name="trash" size={15} />{t('chat.new')}</button>
+        </PopoverContent>
+      </Popover>
     </div>
     <ThreadPrimitive.Root className="chat-thread">
       <ThreadPrimitive.Viewport className="chat-scroll" onClick={event => {
@@ -77,7 +99,6 @@ function Conversation({ context, navigate }: { context: ChatContext; navigate: (
         <ComposerPrimitive.Input aria-label={t('chat.question')} placeholder={t('chat.placeholder')} maxLength={8000} rows={1} autoFocus={false} />
         {running ? <ComposerPrimitive.Cancel className="icon-button" disabled={sending} aria-label={t('chat.stop')}><Icon name="close" size={18} /></ComposerPrimitive.Cancel> : <ComposerPrimitive.Send className="icon-button" aria-label={t('chat.send')}><Icon name="up" size={18} /></ComposerPrimitive.Send>}
       </ComposerPrimitive.Root>
-      <p className="chat-model">{data?.ai ? `${data.ai.provider} · ${data.ai.model}` : ''}</p>
     </ThreadPrimitive.Root>
   </AssistantRuntimeProvider>;
 }

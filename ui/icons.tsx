@@ -5,6 +5,7 @@ import type { ReactNode, SVGProps } from 'react';
 const glyphs = {
   menu: <><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4" /></>,
   close: <><path d="M18 6 6 18M6 6l12 12" /></>,
+  more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   back: <><path d="m12 19-7-7 7-7M19 12H5" /></>,
   up: <><path d="m5 12 7-7 7 7M12 19V5" /></>,
   next: <><path d="M5 12h14m-7-7 7 7-7 7" /></>,

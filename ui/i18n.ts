@@ -3,6 +3,12 @@
  *  dictionary with the same keys and pick it in `dictionary`. */
 export const en = {
   'chat.title': 'Discuss',
+  'chat.thisArticle': 'This article',
+  'chat.thisPost': 'This post',
+  'chat.itemCount': '{n} items in this view',
+  'chat.context': 'Show chat context',
+  'chat.openSource': 'Open in reader',
+  'chat.options': 'Chat options',
   'chat.close': 'Close chat',
   'chat.description': 'Ask about this article or the current feed snapshot. Your conversation is saved.',
   'chat.batch': 'Current batch',
@@ -20,7 +26,7 @@ export const en = {
   'chat.failed': 'Could not get an answer. Please retry.',
   'chat.stopped': 'Answer stopped.',
   'chat.question': 'Your question',
-  'chat.placeholder': 'Ask about what you’re reading…',
+  'chat.placeholder': 'Ask a question…',
   'chat.stop': 'Stop answer',
   'chat.send': 'Send question',
   'feed.hideViewed': 'Hide seen · {n}',

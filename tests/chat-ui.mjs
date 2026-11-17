@@ -12,6 +12,9 @@ const env={PATH:bin+':'+process.env.PATH,HOME:temp,STILLFEED_HOME:temp,STILLFEED
 execFileSync(bun,[path.join(root,'tests/fixture.ts'),'create',state],{env,cwd:temp});
 const sql=(s,args=[])=>JSON.parse(execFileSync(bun,['-e','const {Database}=require("bun:sqlite");const d=new Database(Bun.argv[1]);d.exec("PRAGMA busy_timeout=5000");console.log(JSON.stringify(d.query(Bun.argv[2]).values(...JSON.parse(Bun.argv[3]))||[]))',path.join(state,'stillfeed.db'),s,JSON.stringify(args)],{encoding:'utf8',env}));
 const article=sql("SELECT id FROM articles WHERE kind='article' ORDER BY sort_at DESC LIMIT 1 OFFSET 1")[0][0];
+const postId=sql("SELECT id FROM articles WHERE kind='x' ORDER BY sort_at DESC LIMIT 1")[0][0];
+const longPost='The old way: users are human, you run user interviews, get inspired, mock up user journeys.\nThe new way: users are agents, you run evals, evals inform the software engineering loop. Good read on how we do evals at Vercel.';
+sql('UPDATE articles SET title=? WHERE id=?',[longPost,postId]);
 writeFileSync(path.join(bin,'codex'),'#!/usr/bin/env bun\nconst prompt=await Bun.stdin.text();if(!prompt.includes("CATALOGUE")||!prompt.includes("CONVERSATION"))process.exit(2);await Bun.write(Bun.argv[Bun.argv.indexOf("-o")+1],'+JSON.stringify('A useful connection. [Read the article](/article/'+article+').')+');\n',{mode:0o755});
 const port=24000+Math.floor(Math.random()*15000),base='http://127.0.0.1:'+port;
 const server=spawn(bun,[path.join(root,'src/server.ts'),'--state-dir',state,'--port',String(port)],{env,cwd:temp,stdio:['ignore','ignore','inherit']});
@@ -52,6 +55,25 @@ try{
   await p.screenshot({path:path.join(tmpdir(),'stillfeed-chat-panel-'+width+'.png'),fullPage:true});
   await p.getByRole('button',{name:'Close chat',exact:true}).click();await p.locator('#chatPanel').waitFor({state:'hidden'});await sleep(300);
   check(width+': closing preserves article scroll position',Math.abs(await p.evaluate(()=>scrollY)-y)<5);
+  const postChat=await post('/api/chat',{context:{kind:'article',id:postId}});await post('/api/chat/'+postChat.id+'/clear',{});
+  await p.goto(base+'/post/'+postId);await p.locator('#detailDiscuss').click();await p.getByText('This post',{exact:true}).waitFor();
+  check(width+': long X context stays compact',(await p.locator('.chat-context').boundingBox()).height<=68);
+  await p.getByRole('button',{name:'Show chat context',exact:true}).click();await p.locator('.chat-context-popover').waitFor();
+  check(width+': full post remains available on demand',await p.locator('.chat-context-popover .popover-text').textContent()===longPost);
+  await p.keyboard.press('Escape');await p.getByRole('textbox',{name:'Your question',exact:true}).fill('O cem to je?');await p.getByRole('button',{name:'Send question',exact:true}).click();await p.getByRole('button',{name:'Stop answer',exact:true}).waitFor();await worker();await p.locator('.chat-assistant').waitFor();
+  check(width+': short question uses a compact bubble',(await p.locator('.chat-user').boundingBox()).width<250);
+  check(width+': model is tucked away from the conversation',await p.locator('.chat-model').count()===0);
+  await p.getByRole('button',{name:'Chat options',exact:true}).click();await p.getByRole('button',{name:'Clear conversation',exact:true}).waitFor();await p.keyboard.press('Escape');
+  if(width===390){
+    await p.getByRole('textbox',{name:'Your question',exact:true}).focus();
+    // iOS keeps the layout viewport tall while the keyboard shrinks visualViewport.
+    await p.evaluate(()=>{Object.defineProperty(visualViewport,'height',{configurable:true,value:innerHeight-330});visualViewport.dispatchEvent(new Event('resize'));});
+    await p.waitForFunction(()=>document.querySelector('.chat-composer').getBoundingClientRect().bottom<=visualViewport.height+visualViewport.offsetTop+1);
+    check('phone: composer stays above the simulated keyboard',await p.locator('.chat-composer').isVisible());
+    await p.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'));document.activeElement.blur();});
+  }
+  await p.screenshot({path:path.join(tmpdir(),'stillfeed-chat-compact-'+width+'.png'),fullPage:true});
+  await p.getByRole('button',{name:'Close chat',exact:true}).click();await p.locator('#chatPanel').waitFor({state:'hidden'});
   check(width+': no browser errors',errors.length===0);await ctx.close();
  }
  console.log('Chat UI passed');
