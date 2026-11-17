@@ -169,13 +169,14 @@ export function App() {
     sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
 
-  async function getPage(append: boolean, restore?: { batch: string; offset: number }) {
+  async function getPage(append: boolean, restore?: { batch: string; offset: number }, limit=PAGE_SIZE) {
     if (r.loading && append) return;
     const request = append ? r.request : ++r.request;
     setFailed(false); setLoading(true);
     if (!append) setMessage('');
     try {
       const params = new URLSearchParams();
+      if(limit>PAGE_SIZE)params.set('limit',String(limit));
       if (restore) { params.set('batch', restore.batch); params.set('offset', String(restore.offset)); }
       else if (append && r.feed) { params.set('batch', r.feed.batch); params.set('offset', String(r.feed.next || 0)); }
       else {
@@ -201,7 +202,7 @@ export function App() {
       // Only explicit dismissals leave the current snapshot.
       const visible = r.prefs.view !== 'saved' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
       flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
-      r.pages++;
+      r.pages+=Math.max(1,Math.ceil(result.items.length/PAGE_SIZE));
       watch(); save();
     } catch (error) {
       if (request !== r.request) return;
@@ -245,12 +246,11 @@ export function App() {
       if (saved && !fresh) {
         try {
           if (saved.legacyDismissals?.length) await api(`/api/feed/${saved.batch}/hide-seen`, {action: saved.batch, ids: saved.legacyDismissals});
-          for (let i = 0; i < Math.min(saved.pages, 100); i++) { await getPage(i > 0, { batch: saved.batch, offset: i * PAGE_SIZE }); if (r.feed?.next === null) break; }
+          await getPage(false,{batch:saved.batch,offset:0},Math.min(saved.pages,100)*PAGE_SIZE);
         }
         catch { setFeed(null); await getPage(false); }
       } else {
-        await getPage(false);
-        if (saved) for (let i = 1; i < Math.min(saved.pages, 100) && r.feed?.next !== null; i++) await getPage(true);
+        await getPage(false,undefined,Math.min(saved?.pages??1,100)*PAGE_SIZE);
       }
       const node = saved?.position ? listRef.current?.querySelector<HTMLElement>(`[data-id="${saved.position.id}"]`) : null;
       if (!covered()) window.scrollTo(0, node && saved?.position ? node.getBoundingClientRect().top + scrollY - saved.position.offset : 0);

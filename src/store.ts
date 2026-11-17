@@ -193,7 +193,7 @@ export class Store {
     return count;
   }
   article(id:string) {return this.db.query('SELECT * FROM articles WHERE id=?').get(id) as RecordData|null;}
-  feed(filters:Filters, batchId?:string, offset=0) {
+  feed(filters:Filters, batchId?:string, offset=0, limit=30) {
     type Batch={id:string;created:number;revision:number;filters:string;total:number};
     let batch:Batch|null=null;
     if(batchId) {
@@ -247,7 +247,7 @@ export class Store {
     }
     const frozenFilters=JSON.parse(batch.filters) as Filters;
     if(!frozenFilters.savedOnly)this.setMeta('personalFeedBatch',frozenFilters.personalOnly?frozenFilters.personalBatch!:batch.id);
-    const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at,(SELECT reason FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) AS personal_reason FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT 30`).all(frozenFilters.personalOnly?frozenFilters.personalProfile||'':'',batch.id,offset) as RecordData[];
+    const rows=this.db.query(`SELECT a.*,v.at AS seen_at,(SELECT at FROM saved WHERE article_id=a.id) AS saved_at,(SELECT reason FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) AS personal_reason FROM batch_items b JOIN articles a ON a.id=b.article_id LEFT JOIN seen v ON v.article_id=a.id WHERE b.batch_id=? AND b.ordinal>=? ORDER BY b.ordinal LIMIT ?`).all(frozenFilters.personalOnly?frozenFilters.personalProfile||'':'',batch.id,offset,limit) as RecordData[];
     const items:Article[]=rows.map(articleView);
     const hiddenCondition=frozenFilters.savedOnly?'0':'EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)';
     const unseen=(this.db.query(`SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) AND NOT ${hiddenCondition}`).get(batch.id) as {n:number}).n;

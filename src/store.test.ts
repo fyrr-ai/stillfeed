@@ -30,6 +30,16 @@ test('batch is stable across seen changes, a new import and pagination',async()=
   expect(store.feed({...prefs,hideSeen:true}).total).toBe(46);
  }finally{store.close();}
 });
+
+test('restoring several loaded pages in one response preserves order, counts and the next offset',async()=>{
+ const {dir}=await fixture(),store=new Store(dir);try{
+  load(store);const first=store.feed(prefs),second=store.feed(prefs,first.batch,30);
+  const restored=store.feed(prefs,first.batch,0,60);
+  expect(restored.items.map(a=>a.id)).toEqual([...first.items,...second.items].map(a=>a.id));
+  expect(restored.next).toBe(60);expect(restored.total).toBe(first.total);
+  expect(store.feed(prefs,first.batch,0,3000).items).toHaveLength(75);
+ }finally{store.close()}
+});
 test('canonical identity and settings validation',async()=>{
  expect(canonical('https://twitter.com/a/status/1?utm_campaign=a#b')).toBe('https://x.com/a/status/1');expect(()=>canonical('javascript:alert(1)')).toThrow();
  const{dir}=await fixture(),store=new Store(dir);try{expect(()=>store.configure({windowHours:-1,refreshEvery:1})).toThrow();expect(()=>store.configure({windowHours:168,refreshEvery:5})).toThrow();store.configure({windowHours:168,refreshEvery:3,nightPause:false});expect(store.settings()).toEqual({windowHours:168,refreshEvery:3,nightPause:false,retentionDays:30});expect(refreshHours(2,true)).toEqual([5,7,9,11,13,15,17,19,21]);expect(refreshHours(1,false).length).toBe(24);expect(refreshHours(24,true)).toEqual([5]);}finally{store.close();}
