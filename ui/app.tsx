@@ -627,8 +627,6 @@ export function App() {
   return <>
     <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null || sourcesOpen}>
-      {/* Read / total of this snapshot; it stays in the corner when the bar slides away. */}
-      {!hotOpen && view === 'feed' && total > 0 && headerHidden && <span className="read-count read-count-corner" aria-label={t('feed.readCount', { read: total - unseen, total })}>{total - unseen}/{total}</span>}
       <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
         <nav className="view-tabs" aria-label={t('tabs.label')}>
           <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>

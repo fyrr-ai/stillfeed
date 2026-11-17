@@ -37,6 +37,7 @@ try{
   const p=await ctx.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
   await p.goto(base);await p.locator('#feed .feed-card').first().waitFor();
   check(width+': header controls never overlap',await p.evaluate(()=>{const a=document.querySelector('.view-tabs').getBoundingClientRect(),b=document.querySelector('.top-actions').getBoundingClientRect(),c=document.querySelector('#readCount').getBoundingClientRect();return a.right<=b.left+1&&c.top>=a.bottom-1}));
+  await p.evaluate(()=>scrollTo(0,500));check(width+': counter has one stable position',await p.locator('.read-count').count()===1&&await p.locator('.read-count-corner').count()===0);await p.evaluate(()=>scrollTo(0,0));
   const retained=await p.locator('#feed .feed-card.article').first().getAttribute('data-id');await p.goto(base+'/article/'+retained);await p.locator('#articleBack').click();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reading never dismisses its row',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
   await p.reload();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reload preserves read rows',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
   await p.waitForFunction(()=>document.querySelector('#hideViewed')&&!document.querySelector('#hideViewed').disabled);
