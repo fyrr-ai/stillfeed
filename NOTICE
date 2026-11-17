@@ -10,3 +10,11 @@ Bundled third-party files:
   and UI SDK (Apache License 2.0, assets/ui-sdk-LICENSE).
 
 Runtime dependencies are listed in package.json; each keeps its own license (MIT, ISC or Apache 2.0).
+
+Documentation wallpaper
+-----------------------
+docs/assets/raycast-glaze-2.png is the Glaze 2 wallpaper from Raycast, downloaded
+from https://misc-assets.raycast.com/wallpapers/glaze_2_preview.png via
+https://www.raycast.com/wallpapers. Copyright belongs to Raycast and its artist.
+This third-party artwork, including its appearance in composed documentation
+images, is not covered by the repository's MIT license.

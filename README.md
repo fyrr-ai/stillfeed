@@ -1,56 +1,65 @@
 # Stillfeed
 
-**Keep up with AI and data engineering in ten minutes a day: one private feed instead of fifty tabs.**
+A personal AI news feed for your phone.
 
-![Stillfeed: Keep up with AI and data engineering in ten minutes a day. Three phones show the Hot tab, the feed and an article with its AI summary.](docs/assets/stillfeed-banner.png)
+Stillfeed collects posts from X, YouTube channels, RSS feeds and Reddit into one feed you can scroll like
+Twitter. It checks your sources on a schedule. With an AI provider connected, it picks posts based on your
+interests and prepares short summaries of articles and videos with available transcripts.
 
-<p align="center">
-  <a href="https://github.com/fyrr-ai/stillfeed/actions/workflows/ci.yml"><img src="https://github.com/fyrr-ai/stillfeed/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3b82f6?style=flat&amp;labelColor=27292f" alt="License: MIT"></a>
-  <a href="https://bun.sh"><img src="https://img.shields.io/badge/Runtime-Bun-3b82f6?style=flat&amp;labelColor=27292f" alt="Runtime: Bun"></a>
-  <a href="docs/configuration.md"><img src="https://img.shields.io/badge/Deploy-Self--hosted-3b82f6?style=flat&amp;labelColor=27292f" alt="Deploy: Self-hosted"></a>
-</p>
+Open it a few times a day, read what looks useful, and save what you want to keep. When you're done,
+Hide seen clears the posts you've reviewed. Your bookmarks stay saved.
 
-## What it is
+You run Stillfeed on your own server and open it in a browser, or add it to your phone's home screen as a PWA.
 
-Stillfeed is a **self-hosted news aggregator with its own web app**. You run one small server; it gathers
-the news and serves the app you read it in.
+![Stillfeed. AI news in one feed, with posts, videos and articles from the sources you follow.](docs/assets/stillfeed-banner.png)
 
-| | |
-| --- | --- |
-| **What it does** | Every two hours it fetches the blogs, YouTube channels, news sites and X accounts you follow, keeps what is about AI and data engineering, and prepares clean text and AI summaries. |
-| **What you use** | A web app made for the phone first: a feed, a personal selection based on your interests (Hot), saved items and a clean reader with a three-point summary in your language. |
-| **Where it runs** | On your laptop, a home server or any small VPS. One process and one SQLite file, started with one command or Docker. |
-| **On your phone** | Open it in the browser, or add it to your home screen to use it like an app. There is no native app and no app store. |
-| **What it needs** | Nothing else to start. Optional: an AI key (Anthropic, OpenAI-compatible or the Codex CLI) for summaries and Hot, and a SocialData key for X. |
-| **What it is not** | Not a cloud service: no account, no telemetry, nothing leaves your server except the requests to your sources and your AI provider. |
+[Quick start](#quick-start) · [Configuration](docs/configuration.md) · [Development](docs/development.md) · [MIT license](LICENSE)
 
-[Quick start](#quick-start) · [Configuration](docs/configuration.md) · [How it works](#how-it-works) · [Development](docs/development.md)
+## A quick look
 
-## Why Stillfeed
+The screenshots below use example content in the actual app.
 
-- **Save time.** About 70 blogs, 50 YouTube channels, 9 news aggregators and 410 X accounts arrive in one
-  feed. Hide seen clears the items you have reviewed when you choose, with Undo.
-- **Never miss what matters.** Hot selects items against your interests and explains why each one matters.
-  Edit your interests in settings; useful articles qualify without a fixed number of picks.
-- **Read less, understand more.** Articles, video transcripts and X Articles open as clean text with a
-  three-point AI summary in the language you choose.
-- **Use the AI you want.** Anthropic, any OpenAI-compatible API (including local models through Ollama),
-  the Codex CLI, or no AI at all.
+### Your sources in one feed
 
-![Three phones: Hot shows picks with the reason each matters, Feed shows articles and X posts, Saved keeps bookmarks.](docs/assets/stillfeed-phones.png)
+Read posts, articles and videos together. Follow X accounts, add RSS feeds and YouTube channels, or subscribe
+to a subreddit's feed. Refresh runs every two hours by default; you can change the schedule in settings.
 
-It is fast on a phone: the first load is about 110 KB, and the app scores 100 in Lighthouse on desktop.
+<img src="docs/assets/stillfeed-feed.png" width="476" alt="The Feed tab mixes an article, a post from X and a YouTube video in the same list.">
 
-## How it works
+### Hot picks for your interests
 
-1. **Connect your sources.** Start with the curated defaults, add any feed, website or YouTube channel by
-   its address, and follow X accounts by handle.
-2. **Stillfeed filters and ranks.** Every two hours it collects new items, keeps those about AI and data
-   engineering. A background worker selects Hot against your interests.
-3. **Read and get summaries.** Open an item for its clean text and summary. Save what you want to keep.
+Describe what you care about. Hot selects matching posts from your current feed and gives a short reason
+for each pick. It shares the same read and hidden state as Feed.
 
-![How Stillfeed works: sources flow into a collection that filters and ranks them, everything is stored in one SQLite file, a background reader prepares texts and summaries, and the web app reads from SQLite. An AI provider is optional.](docs/assets/stillfeed-architecture.png)
+<img src="docs/assets/stillfeed-hot.png" width="476" alt="Hot shows a coding-agent video and a local-model article, each with a reason it matches the reader's interests.">
+
+### A summary before the full article
+
+Open an article for a three-point summary and clean text. Videos with available transcripts can be read and
+summarized too. Choose the summary language in your configuration.
+
+<img src="docs/assets/stillfeed-reader.png" width="476" alt="The reader shows three summary points followed by the original article text.">
+
+### Save things you want to come back to
+
+Bookmark articles and posts as you browse. Saved groups them by topic automatically. Reading an item or
+hiding it from Feed does not remove its bookmark.
+
+<img src="docs/assets/stillfeed-saved.png" width="476" alt="Saved has a topic picker with Coding agents, Models and Evaluations, above bookmarked articles.">
+
+### Ask about what you're reading
+
+Open Discuss to ask a follow-up question about an article or the current batch. The conversation stays in
+Stillfeed, alongside the content you're reading.
+
+<img src="docs/assets/stillfeed-discuss.png" width="476" alt="Discuss answers a follow-up question using the article about running a coding model locally.">
+
+### Clear the posts you've seen when you're ready
+
+The counter shows seen items out of the current batch. Tap it and choose Hide seen to clear those posts,
+with Undo if you change your mind. Opening or scrolling past an item never removes it by itself.
+
+<img src="docs/assets/stillfeed-hide-seen.png" width="476" alt="Animation: open the seen counter, choose Hide seen, and use Undo to restore the hidden posts. Bookmarks remain saved.">
 
 ## Quick start
 
@@ -59,23 +68,27 @@ You need [Bun](https://bun.sh) 1.4 or newer.
 ```sh
 git clone https://github.com/fyrr-ai/stillfeed && cd stillfeed
 bun install --frozen-lockfile
-cp .env.example .env    # optional: add an AI key and your summary language
+cp .env.example .env    # optional: choose an AI provider and summary language
 bun start               # open http://127.0.0.1:3200
 ```
 
-The first collection starts on its own. Stillfeed has no login, so reach it from your phone through
-Tailscale, an SSH tunnel or your own reverse proxy rather than the open internet. Docker, AI providers,
-your interests and sources are covered in [Configuration](docs/configuration.md).
+The first collection starts on its own. Add an AI provider to enable summaries, Hot, topic grouping and
+chat. Stillfeed supports Anthropic, OpenAI-compatible APIs, local models through compatible endpoints, and
+the Codex CLI. Collection and reading still work without AI.
+
+X uses an optional paid [SocialData](https://socialdata.tools) API connection. Other sources work without it.
+Setup, provider options and refresh settings are in [Configuration](docs/configuration.md).
+
+Stillfeed has no login. Reach it from your phone through Tailscale, an SSH tunnel or your own reverse proxy.
+Docker instructions are in [Configuration](docs/configuration.md#running-it).
 
 ## Documentation
 
-- [Configuration](docs/configuration.md): AI providers, summary language, your interests, sources, X, Docker
-  and every setting.
-- [Development](docs/development.md): tests, speed budgets, the build and how the pieces fit together.
-- [Contributing](CONTRIBUTING.md): ground rules for changes and translations.
+- [Configuration](docs/configuration.md) covers sources, AI providers, summaries, interests, chat and deployment.
+- [Development](docs/development.md) covers the code, tests, build and screenshot generator.
+- [Contributing](CONTRIBUTING.md) covers changes and translations.
 
 ## License
 
-[MIT](LICENSE). The web collectors and the keyword filter started as a port of
-[LearnPrompt/ai-news-radar](https://github.com/LearnPrompt/ai-news-radar) (MIT). Third-party notices are in
-[NOTICE](NOTICE).
+[MIT](LICENSE). The web collectors and keyword filter started as a port of
+[LearnPrompt/ai-news-radar](https://github.com/LearnPrompt/ai-news-radar). Third-party notices are in [NOTICE](NOTICE).

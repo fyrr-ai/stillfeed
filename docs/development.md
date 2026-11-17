@@ -61,14 +61,20 @@ on phone and desktop layouts. It does not use account credentials or make model 
 
 ## README images
 
-The images in `docs/assets/` are generated, not drawn by hand. `docs/assets/src/demo.ts` builds a demo state with
-invented, neutral news and locally drawn pictures, `shots.ts` runs the real server on it and screenshots the app
-with every outside request blocked, and `compose.ts` places the screenshots in phone and browser frames and draws
-the architecture diagram.
+`docs/assets/src/demo.ts` builds an isolated SQLite database with fictional AI stories, cached summaries,
+Hot ratings, saved topics and a sample chat. `shots.ts` captures the real application and blocks outbound
+server requests, browser requests to outside sites and all background workers. It needs no credentials
+and makes no model calls. Demo thumbnails and avatars are local SVGs.
 
 ```sh
 PW=<path to playwright-core> CHROME=<chromium binary> bun run docs:shots
 ```
 
-Images are reduced to a 256-colour palette with `pngquant` when it is installed, else with Pillow's
-libimagequant; without either they are written as Chromium produces them.
+`compose.ts` places the screenshots over Raycast's Glaze 2 wallpaper in `docs/assets/raycast-glaze-2.png` and
+creates the README banner and a separate social banner. The interface is captured from the app, inside an iPhone-style frame. Keep the wallpaper file when regenerating screenshots.
+
+`animate.ts` combines captured Hide seen / Undo states into a lossless animated PNG, with a useful first
+frame for viewers that do not play APNG. The generator uses Bun and Chromium, without Python or an image
+conversion dependency. `KEEP_RAW=<directory>` also keeps the five unframed phone screenshots.
+
+The presentation uses the lighting and depth of [Raycast's website presentation by Stuart Regan](https://dribbble.com/shots/17031722--New-Raycast-website) as a visual reference. The wallpaper is from [Raycast Wallpapers](https://www.raycast.com/wallpapers); interface screenshots and demo thumbnails are our own.
