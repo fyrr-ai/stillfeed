@@ -38,6 +38,12 @@ chat uses its readable text; feed chat uses the snapshot's title catalogue and r
 summaries, not an unlimited full-text search. Large catalogues are limited to 300 relevant titles and eight
 excerpts per answer. Answers link back to articles. Stop cancels the pending answer; failures can be retried.
 
+When discussing an X post, chat includes its quote and downloads up to three external article links from
+both posts before answering. Native X Articles use the reader's full text. Linked article text is cached in
+SQLite alongside its parent post, kept for saved posts, and reused by follow-up questions. This also works
+in existing conversations. Failed downloads remain explicit unavailable sources and are retried on the next
+question; earlier assistant statements about missing text do not override newly loaded sources.
+
 **Hide seen · count** above the feed and at its end removes only rows already seen from the current snapshot,
 with **Undo**. It leaves bookmarks in Saved. Marking the entire batch seen remains a separate action in options.
 

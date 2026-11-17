@@ -41,6 +41,14 @@ export function extract(html:string,url:string):Omit<Reading,'fetchedAt'> {
   const clean=sanitize(article.content,sanitizeOptions);
   return {title:article.title||'Article',author:article.byline||'',html:clean,text:article.textContent.trim(),url};
 }
+/** Download a public HTML article, shared by the reader and linked sources in chat. */
+export async function readURL(url:string,signal?:AbortSignal):Promise<Omit<Reading,'fetchedAt'>> {
+  const page=await download(url,4000000,{},signal);
+  if(!['text/html','application/xhtml+xml'].includes(page.type))throw new Error('This link is not an HTML article. Open the original instead.');
+  const charset=/charset\s*=\s*["']?([^;\s"']+)/i.exec(page.headers.get('content-type')||'')?.[1]||detect(page.bytes)||'utf-8';
+  let html:string;try{html=new TextDecoder(charset).decode(page.bytes);}catch{html=new TextDecoder().decode(page.bytes);}
+  return extract(html,page.url);
+}
 export class Reader {
   private jobs=new Map<string,Promise<Reading>>();
   constructor(private store:Store){store.db.exec('CREATE TABLE IF NOT EXISTS article_content(article_id TEXT PRIMARY KEY REFERENCES articles(id),payload TEXT NOT NULL,fetched_at INTEGER NOT NULL)');}
@@ -57,11 +65,7 @@ export class Reader {
       else if(video)reading=await this.transcript(video,String(article!.title),String(article!.source),url);
       else if(isReddit(url)&&feedReading(article!))reading=feedReading(article!)!;
       else try{
-        const page=await download(url,4000000);
-        if(!['text/html','application/xhtml+xml'].includes(page.type))throw new Error('This link is not an HTML article. Open the original instead.');
-        const charset=/charset\s*=\s*["']?([^;\s"']+)/i.exec(page.headers.get('content-type')||'')?.[1]||detect(page.bytes)||'utf-8';
-        let html:string;try{html=new TextDecoder(charset).decode(page.bytes);}catch{html=new TextDecoder().decode(page.bytes);}
-        reading=extract(html,page.url);
+        reading=await readURL(url);
       }catch(error){const fallback=feedReading(article!);if(!fallback)throw error;reading=fallback;}
       const result={...reading,fetchedAt:Date.now()};
       this.store.db.query('INSERT OR REPLACE INTO article_content VALUES(?,?,?)').run(id,JSON.stringify(result),result.fetchedAt);

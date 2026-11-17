@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, hash, type Filters } from './store';
 import { Reader } from './reader';
-import { Chats, chatContext } from './chat';
+import { Chats, chatContext, chatPrompt, linkedArticleURLs } from './chat';
 const filters: Filters = {scope:'all',kind:'all',q:'',hideSeen:false,hours:72};
 function fixture() {
  const dir=mkdtempSync(join(tmpdir(),'stillfeed-chat-')),store=new Store(dir),chats=new Chats(store),previous=process.env.STILLFEED_LLM;
@@ -62,4 +62,72 @@ test('chat boundary validation rejects malformed contexts, unknown articles and 
  const v=f.chats.open({kind:'article',id:f.id});expect(()=>f.chats.send(v.id,message('one'),'x'.repeat(8001))).toThrow();
  process.env.STILLFEED_LLM='none';expect(()=>f.chats.send(v.id,message('one'),'Explain')).toThrow('off');
  }finally{f.close()}
+});
+
+test('existing post conversations load the quoted post and its linked article, then reuse cached full text',async()=>{
+ const f=fixture();try{
+ const url='https://vercel.example.com/blog/agent-evals',post='https://x.com/builder/status/123';
+ f.store.ingest([{url:post,title:'Users are agents',source:'X',published_at:new Date().toISOString(),tweet:{text:'The old way: users are human.',links:[],quote:{name:'Vercel',text:'How to evaluate agents with realistic tasks.',links:[{href:url},{href:url+'?utm_source=x'}]}}}],new Date().toISOString());
+ const id=hash(post),v=f.chats.open({kind:'article',id});f.store.save(id,true);
+ // The thread already contains an answer from before linked-source support.
+ f.chats.send(v.id,message('old'),'What is this?');await f.chats.work('worker',async()=> 'The linked article is unavailable.',async()=>{throw Error('Old missing source')});
+ let downloads=0;
+ const load=async()=>{downloads++;return {title:'Agent evals',text:'ORCHID-42 is the concrete evaluation method from the linked article.',html:'<p>Method</p>',author:'Vercel',url};};
+ f.chats.send(v.id,message('new'),'Tell me about the actual article');
+ await f.chats.work('worker',async prompt=>{
+ expect(prompt).toContain('How to evaluate agents with realistic tasks.');expect(prompt).toContain('ORCHID-42');expect(prompt).toContain('takes precedence over access claims');
+ const sources=JSON.parse(prompt.split('SOURCE TEXT\n')[1]!.split('\nCONVERSATION')[0]!);
+ expect(sources.find((s:{kind:string})=>s.kind==='external')).toMatchObject({title:'Agent evals',coverage:'full',link:url});
+ return 'Here is the method from the full article.';
+ },load);
+ f.chats.send(v.id,message('followup'),'More detail');await f.chats.work('worker',async prompt=>{expect(prompt).toContain('ORCHID-42');return 'More detail.'},load);
+ expect(downloads).toBe(1);expect(f.chats.view(v.id).messages).toHaveLength(6);
+ expect(f.store.db.query('SELECT 1 FROM saved WHERE article_id=?').all(id)).toHaveLength(1);
+ f.store.db.query('UPDATE articles SET sort_at=? WHERE id=?').run(Date.now()-90*86400000,id);
+ expect(f.store.prune()).toBe(0);expect(f.store.db.query('SELECT 1 FROM chat_link_content').all()).toHaveLength(1);
+ f.store.save(id,false);expect(f.store.prune()).toBe(1);expect(f.store.db.query('SELECT 1 FROM chat_link_content').all()).toHaveLength(0);
+ }finally{f.close()}
+});
+
+test('native X Articles contribute their cached reader text as well as the post',async()=>{
+ const f=fixture();try{
+ const url='https://x.com/writer/status/456',id=hash(url);
+ f.store.ingest([{url,title:'X Article',source:'X',published_at:new Date().toISOString(),tweet:{text:'Read my full article.',article:{title:'Long form'},links:[]}}],new Date().toISOString());
+ f.store.db.query('INSERT INTO article_content VALUES(?,?,?)').run(id,JSON.stringify({title:'Long form',text:'NATIVE-FULL-TEXT: a detailed argument.',url,html:'<p>Argument</p>',author:'Writer',fetchedAt:Date.now()}),Date.now());
+ const v=f.chats.open({kind:'article',id});f.chats.send(v.id,message('native'),'Explain');
+ await f.chats.work('worker',async prompt=>{expect(prompt).toContain('NATIVE-FULL-TEXT');expect(prompt).toContain('Read my full article.');expect(prompt).toContain('"coverage":"full"');return 'Explanation'});
+ }finally{f.close()}
+});
+
+test('an unreadable linked article reports its specific failure and can load on the next question',async()=>{
+ const f=fixture();try{
+ const url='https://publisher.example.com/paywall',post='https://x.com/writer/status/789',id=hash(post);
+ f.store.ingest([{url:post,title:'A linked article',source:'X',published_at:new Date().toISOString(),tweet:{text:'Read this report.',links:[{href:url}]}}],new Date().toISOString());
+ const v=f.chats.open({kind:'article',id});f.chats.send(v.id,message('failure'),'Explain');
+ await f.chats.work('worker',async prompt=>{const sources=JSON.parse(prompt.split('SOURCE TEXT\n')[1]!.split('\nCONVERSATION')[0]!);expect(sources.find((s:{kind:string})=>s.kind==='external')).toMatchObject({coverage:'unavailable',error:'Source returned HTTP 403'});return 'Publisher blocked the article.'},async()=>{throw Error('Source returned HTTP 403')});
+ expect(f.store.db.query('SELECT 1 FROM chat_link_content').all()).toHaveLength(0);
+ f.chats.send(v.id,message('retry'),'Try again');await f.chats.work('worker',async prompt=>{expect(prompt).toContain('Now available full text');return 'Found it'},async()=>({title:'Report',text:'Now available full text',html:'<p>Report</p>',author:'Writer',url}));
+ expect(f.store.db.query('SELECT 1 FROM chat_link_content').all()).toHaveLength(1);
+ }finally{f.close()}
+});
+
+test('cancelling during linked-source download prevents both generation and caching',async()=>{
+ const f=fixture();try{
+ const post='https://x.com/writer/status/900',id=hash(post);f.store.ingest([{url:post,title:'Report',source:'X',published_at:new Date().toISOString(),tweet:{text:'Report',links:[{href:'https://publisher.example.com/report'}]}}],new Date().toISOString());
+ const v=f.chats.open({kind:'article',id});f.chats.send(v.id,message('cancel-download'),'Read');let ready!:()=>void;const started=new Promise<void>(r=>ready=r);let generated=false;
+ const work=f.chats.work('worker',async()=>{generated=true;return 'Wrong'},async(_url,signal)=>{ready();await new Promise<void>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('Aborted')),{once:true}));throw Error('Unreachable')});
+ await started;f.chats.cancel(v.id);await work;expect(generated).toBe(false);expect(f.chats.view(v.id).messages.at(-1)?.state).toBe('cancelled');expect(f.store.db.query('SELECT 1 FROM chat_link_content').all()).toHaveLength(0);
+ }finally{f.close()}
+});
+
+test('post and quote link metadata is validated, canonicalized and deduplicated',()=>{
+ expect(linkedArticleURLs({links:[null,{href:'javascript:alert(1)'},{href:'https://user:password@example.com/secret'},{href:'https://x.com/a/status/1'},{href:'https://example.com/article?utm_source=x#part'}],quote:{links:[{href:'https://example.com/article'},{href:'https://publisher.com/report'}]}})).toEqual(['https://example.com/article','https://publisher.com/report']);
+ expect(linkedArticleURLs({links:'invalid',quote:{links:null}})).toEqual([]);
+});
+
+test('long prepared article excerpts retain their text budget instead of becoming feed snippets',()=>{
+ const text='A'.repeat(50000)+'DETAIL-NEAR-THE-END';
+ const prompt=chatPrompt([{id:message('long'),kind:'external',url:'https://example.com/long',title:'Long article',text,coverage:'excerpt'}],[]);
+ const sources=JSON.parse(prompt.split('SOURCE TEXT\n')[1]!.split('\nCONVERSATION')[0]!);
+ expect(sources[0].text).toBe(text);expect(sources[0].coverage).toBe('excerpt');
 });

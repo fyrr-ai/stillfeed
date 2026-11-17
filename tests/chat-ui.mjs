@@ -15,7 +15,7 @@ const article=sql("SELECT id FROM articles WHERE kind='article' ORDER BY sort_at
 const postId=sql("SELECT id FROM articles WHERE kind='x' ORDER BY sort_at DESC LIMIT 1")[0][0];
 const longPost='The old way: users are human, you run user interviews, get inspired, mock up user journeys.\nThe new way: users are agents, you run evals, evals inform the software engineering loop. Good read on how we do evals at Vercel.';
 sql('UPDATE articles SET title=? WHERE id=?',[longPost,postId]);
-writeFileSync(path.join(bin,'codex'),'#!/usr/bin/env bun\nconst prompt=await Bun.stdin.text();if(!prompt.includes("CATALOGUE")||!prompt.includes("CONVERSATION"))process.exit(2);await Bun.write(Bun.argv[Bun.argv.indexOf("-o")+1],'+JSON.stringify('A useful connection. [Read the article](/article/'+article+').')+');\n',{mode:0o755});
+writeFileSync(path.join(bin,'codex'),'#!/usr/bin/env bun\nconst prompt=await Bun.stdin.text();if(!prompt.includes("CATALOGUE")||!prompt.includes("CONVERSATION"))process.exit(2);if(prompt.includes("O cem to je?")&&!prompt.includes("Distinct linked article detail."))process.exit(3);await Bun.write(Bun.argv[Bun.argv.indexOf("-o")+1],'+JSON.stringify('A useful connection. [Read the article](/article/'+article+').')+');\n',{mode:0o755});
 const port=24000+Math.floor(Math.random()*15000),base='http://127.0.0.1:'+port;
 const server=spawn(bun,[path.join(root,'src/server.ts'),'--state-dir',state,'--port',String(port)],{env,cwd:temp,stdio:['ignore','ignore','inherit']});
 let browser;
@@ -25,6 +25,11 @@ const worker=()=>new Promise((resolve,reject)=>{const child=spawn(bun,[path.join
 function check(label,condition){if(!condition)throw Error(label);console.log('ok '+label)}
 try{
  for(let i=0;i<100;i++){try{if((await fetch(base+'/health')).ok)break}catch{}await sleep(100)}
+ const postTweet=JSON.parse(sql('SELECT tweet FROM articles WHERE id=?',[postId])[0][0]);
+ for(const link of [...(postTweet.links||[]),...(postTweet.quote?.links||[])]){
+  const reading={title:'Linked article',text:'Distinct linked article detail.',html:'<p>Linked article</p>',author:'Publisher',url:link.href};
+  sql('INSERT OR REPLACE INTO chat_link_content VALUES(?,?,?)',[postId,link.href,JSON.stringify(reading)]);
+ }
  browser=await chromium.launch({executablePath:process.env.CHROME,args:['--no-sandbox']});
  for(const width of [390,1280]){
   const ctx=await browser.newContext({viewport:{width,height:844},isMobile:width<760,hasTouch:true});
