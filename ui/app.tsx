@@ -648,7 +648,11 @@ export function App() {
         </footer>
         </div>
       </main>
-      <button id="scrollTop" className="icon-button scroll-top" hidden={!showScrollTop || optionsOpen} aria-label={t('feed.scrollTop')} title={t('feed.scrollTop')} onClick={() => window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'instant' : 'smooth' })}><Icon name="up" /></button>
+      <button id="scrollTop" className="icon-button scroll-top" hidden={!showScrollTop || optionsOpen} aria-label={t('feed.scrollTop')} title={t('feed.scrollTop')} onClick={event => {
+        // Hiding the focused button during a smooth scroll cancels that scroll in Chromium.
+        event.currentTarget.blur();
+        window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+      }}><Icon name="up" /></button>
     </div>
     {readerUsed && <Suspense fallback={null}><Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} /></Suspense>}
     {sourcesOpen && <Suspense fallback={null}><SourcesPage focus={sourcesFocus} back={backToFeed} config={config} failed={status.failed} refresh={() => void refresh()} refreshing={status.refreshing} notify={text => notify(text)}

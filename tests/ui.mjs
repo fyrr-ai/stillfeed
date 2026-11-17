@@ -240,6 +240,9 @@ try{
   }
   await p.evaluate(()=>scrollTo(0,0));await sleep(200);const room=await p.evaluate(()=>document.documentElement.scrollHeight-innerHeight);await p.evaluate(y=>scrollTo(0,y),Math.min(1500,room-200));await sleep(150);await p.evaluate(y=>scrollTo(0,y),Math.min(1600,room-100));await sleep(300);check(`${width}: top bar hides while scrolling down`,room>300&&await p.locator('.topbar-hidden').count()===1,`room ${room}`);
   await p.evaluate(()=>scrollBy(0,-30));await sleep(300);check(`${width}: a small scroll up brings Feed and Saved back`,await p.locator('.topbar-hidden').count()===0&&await p.getByRole('button',{name:'Saved',exact:true}).isVisible());
+  check(`${width}: back-to-top arrow appears after scrolling`,await p.locator('#scrollTop').isVisible());
+  await p.locator('#scrollTop').click();await p.waitForFunction(()=>scrollY===0);
+  check(`${width}: back-to-top reaches the top before disappearing`,await p.locator('#scrollTop').isHidden());
   if(width===390){
     // Cards that were on screen for a second are marked seen; let that land before counting.
     const seenNow=()=>sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1200);const unseenBefore=seenNow();await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();await p.getByRole('button',{name:'Cancel',exact:true}).click();await p.locator('#markAllConfirm').waitFor({state:'hidden'});await close();await sleep(300);check('mark all asks first and Cancel changes nothing',seenNow()===unseenBefore);
