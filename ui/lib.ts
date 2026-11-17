@@ -5,9 +5,8 @@ export type { Article };
 export type Feed = { items: Article[]; total: number; unseen: number; batch: string; next: number | null; seenBefore: number; revision: number; generatedAt: string; filters: Filters };
 export type Preferences = { view: 'feed' | 'saved'; scope: 'ai' | 'all'; kind: 'all' | 'article' | 'x'; q: string; hideSeen: boolean; savedTopic?: string };
 export type Position = { id: string; offset: number };
-export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; collapsed?: string[] };
+export type Session = { preferences: Preferences; batch: string; pages: number; position: Position | null; seenBefore: number; revision: number; at?: number; collapsed?: string[]; dismissalVersion?: 2 };
 /** After this long away, the feed is rebuilt so everything seen meanwhile disappears. */
-export const FRESH_AFTER = 15 * 60 * 1000;
 export type Settings = { windowHours: number; refreshEvery: number; nightPause: boolean; retentionDays: number };
 export type SourceKind = 'rss' | 'youtube' | 'web' | 'x';
 export type Source = { id: string; name: string; enabled: number; articles: number; error?: string | null; url?: string; kind?: SourceKind };

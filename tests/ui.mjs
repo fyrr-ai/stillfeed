@@ -98,8 +98,7 @@ try{
     const second={...addition,url:'https://example.com/second-after-import',title:'Second fresh AI update',published_at:new Date(Date.parse(nextTime)+30000).toISOString()};
     const later=new Date(Date.parse(nextTime)+60000).toISOString();fixture('add',state,later,JSON.stringify([second]));
     await p.evaluate(()=>scrollTo(0,0));await sleep(200);await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-    await p.waitForFunction(()=>document.querySelector('.feed-card')?.getAttribute('data-url')==='https://example.com/second-after-import');
-    check('at the top new data arrives without a tap',await p.locator('#newUpdates').isHidden());
+    await p.locator('#newUpdates').waitFor({state:'visible'});check('at the top new data still requires a tap',await p.locator('.feed-card').first().getAttribute('data-url')===addition.url);await p.locator('#newUpdates').click();await p.waitForFunction(()=>document.querySelector('.feed-card')?.getAttribute('data-url')==='https://example.com/second-after-import');
   }
 
   const post=p.locator('.feed-card.tweet').first();const postURL=await post.getAttribute('data-url');let remoteCalls=0;p.on('request',request=>{if(/socialdata|comments|replies/.test(request.url()))remoteCalls++;});
@@ -129,7 +128,7 @@ try{
   if(width===390){await swipe(260,240,-150,0);await sleep(300);check('left swipe in a thread neither saves nor navigates',await p.locator('#detailSave').getAttribute('aria-pressed')==='false'&&new URL(p.url()).pathname.startsWith('/post/'));await p.locator('#detailSave').click();await p.waitForFunction(()=>document.querySelector('#detailSave').getAttribute('aria-pressed')==='true');}
   await p.reload();await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: thread address survives reload`,await p.locator('#detailLabel').innerText()==='Thread');
   await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
-  check(`${width}: a post you opened leaves the feed when you return`,await p.locator(`#feed [data-id="${postId}"]`).count()===0);
+  check(`${width}: a post you opened stays in the batch when you return`,await p.locator(`#feed [data-id="${postId}"]`).count()===1);
   const tapped=p.locator('.feed-card.tweet').first(),tappedId=await tapped.getAttribute('data-id');await tapped.locator('.post-text').first().click({position:{x:2,y:4}});await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: tapping the X post body opens its detail`,new URL(p.url()).pathname===`/post/${tappedId}`);
   await p.getByRole('button',{name:'Back to feed',exact:true}).click();await p.locator('#articlePage').waitFor({state:'hidden'});
   await open();const before=sql('SELECT COUNT(*) FROM seen')[0][0];await sleep(1500);check(`${width}: options do not mark the background seen`,sql('SELECT COUNT(*) FROM seen')[0][0]===before);
@@ -177,7 +176,7 @@ try{
     await p.evaluate(()=>scrollTo(0,0));await sleep(100);await swipe(160,150,0,45);await sleep(100);check('short pull does not refresh',refreshCalls===0);
     await swipe(160,150,0,150,true);await sleep(100);check('cancelled pull does not refresh',refreshCalls===0&&await p.locator('#gestureHint').isHidden());
     await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:100,y:150,id:1},{x:240,y:150,id:2}]});await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:100,y:290,id:1},{x:240,y:290,id:2}]});await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await sleep(100);check('two-finger movement does not refresh',refreshCalls===0);
-    const seenBeforePull=await p.locator('#feed .feed-card.seen').count();const rebuilt=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('hideSeen=1')&&!r.url().includes('batch='));const refreshed=p.waitForResponse(r=>r.url().endsWith('/api/refresh')&&r.request().method()==='POST');await swipe(160,150,0,150);await refreshed;await rebuilt;await sleep(150);check('pull to refresh rebuilds the feed without what you have seen',seenBeforePull>0&&await p.locator('#feed .feed-card.seen').count()===0,`${seenBeforePull} seen before`);check('pull down refreshes once without opening the underlying link',refreshCalls===1&&new URL(p.url()).pathname==='/');
+    const seenBeforePull=await p.locator('#feed .feed-card.seen').count();const rebuilt=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('hideSeen=0')&&!r.url().includes('batch='));const refreshed=p.waitForResponse(r=>r.url().endsWith('/api/refresh')&&r.request().method()==='POST');await swipe(160,150,0,150);await refreshed;await rebuilt;await sleep(150);check('pull to refresh keeps seen rows until dismissal',seenBeforePull>0&&await p.locator('#feed .feed-card.seen').count()>0,`${seenBeforePull} seen before`);check('pull down refreshes once without opening the underlying link',refreshCalls===1&&new URL(p.url()).pathname==='/');
     await sleep(1600);await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await sleep(300);check('pull to refresh runs the collection command once and it finishes',existsSync(collected)&&(await request('/api/status')).refresh==='idle');
     await p.evaluate(()=>scrollTo(0,600));await swipe(160,180,0,130);await sleep(100);check('scrolling inside the feed moves it without triggering refresh',refreshCalls===1&&await p.evaluate(()=>scrollY<600&&scrollY>0));
   }
@@ -233,7 +232,7 @@ try{
     await p.waitForFunction(id=>JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id]===true,offlineId);
     check('failed seen save stays on the device',sql('SELECT COUNT(*) FROM seen WHERE article_id=?',[offlineId])[0][0]===0);
     await p.reload();await p.waitForSelector('.feed-card');await sleep(300);
-    check('offline seen state survives reload and the opened article stays out of the feed',await p.locator(`[data-id="${offlineId}"]`).count()===0&&await p.evaluate(id=>JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id]===true,offlineId));
+    check('offline seen state survives reload while the row remains visible',await p.locator(`#feed [data-id="${offlineId}"]`).count()===1&&await p.evaluate(id=>JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id]===true,offlineId));
     await p.unroute('**/api/seen');await p.evaluate(()=>window.dispatchEvent(new Event('online')));
     await p.waitForFunction(id=>!JSON.parse(localStorage.getItem('stillfeed-outbox')||'{}')[id],offlineId);
     check('reconnection saves seen to the server',sql('SELECT COUNT(*) FROM seen WHERE article_id=?',[offlineId])[0][0]===1);
@@ -257,7 +256,7 @@ try{
   await p.evaluate(()=>scrollTo(0,0));await sleep(200);const firstCard=p.locator('#feed .feed-card').first(),firstId=await firstCard.getAttribute('data-id'),secondId=await p.locator('#feed .feed-card').nth(1).getAttribute('data-id');
   await firstCard.locator('.card-head time').click();await p.locator('#articlePage').waitFor({state:'visible'});await p.locator('.next-entry').click();await p.waitForFunction(id=>location.pathname.endsWith(id),secondId);
   check(`${width}: Next opens the following feed item`,new URL(p.url()).pathname.endsWith(secondId));
-  await p.goBack();await p.locator('#articlePage').waitFor({state:'hidden'});check(`${width}: one Back after Next returns to the feed without both read items`,new URL(p.url()).pathname==='/'&&await p.locator(`#feed [data-id="${firstId}"], #feed [data-id="${secondId}"]`).count()===0);
+  await p.goBack();await p.locator('#articlePage').waitFor({state:'hidden'});check(`${width}: one Back after Next keeps both read items in the feed`,new URL(p.url()).pathname==='/'&&await p.locator(`#feed [data-id="${firstId}"], #feed [data-id="${secondId}"]`).count()===2);
   await p.unroute('**/api/article/*/content');
   if(width===390){
     const picks=sql('SELECT id FROM articles WHERE ai=1 AND sort_at>? ORDER BY sort_at DESC LIMIT 2',[Date.now()-40*3600000]).map(r=>r[0]);

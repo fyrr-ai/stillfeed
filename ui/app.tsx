@@ -22,7 +22,7 @@ const ChatPanel = lazy(() => loadChat().then(m => ({ default: m.ChatPanel })));
 const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 4000 }) : setTimeout(work, 1500);
 const prefetch = () => Promise.all([loadChrome(), loadDetail(), loadSidebar(), loadSources()]);
 import {
-  api, COMMIT, defaults, FRESH_AFTER, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
+  api, COMMIT, defaults, storePreferences, gestureAllowed, loadOutbox, loadPreferences, loadSession, optional, PAGE_SIZE, reducedMotion, resist,
   type Article, type Config, type Feed, type HotItem, type Preferences, type Session, type Settings, type Source, type Status, type XAccount,
 } from './lib';
 
@@ -102,7 +102,7 @@ export function App() {
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
-    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, pendingUpdates: false,
+    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
@@ -171,7 +171,7 @@ export function App() {
     storePreferences(r.prefs);
     if (!r.feed || r.restoring || r.failedNewView || covered()) return;
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.feed-card') ?? [])].find(el => el.getBoundingClientRect().bottom > 100);
-    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), collapsed: [...r.collapsed] };
+    const data: Session = { preferences: { ...r.prefs }, batch: r.feed.batch, pages: r.pages, position: row ? { id: row.dataset.id!, offset: row.getBoundingClientRect().top } : null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, at: Date.now(), collapsed: [...r.collapsed], dismissalVersion: 2 };
     sessionStorage.setItem('stillfeed-session', JSON.stringify(data));
     sessionStorage.setItem('stillfeed-session-' + r.prefs.view, JSON.stringify(data));
   }
@@ -187,10 +187,10 @@ export function App() {
       else if (append && r.feed) { params.set('batch', r.feed.batch); params.set('offset', String(r.feed.next || 0)); }
       else {
         const p = r.prefs;
-        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', p.hideSeen && p.view === 'feed' ? '1' : '0');
+        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', '0');
         if (p.view === 'saved' && p.savedTopic) params.set('topic', p.savedTopic);
         // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
-        if (r.feed && p.hideSeen && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
+        if (r.feed && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
       }
       const result = await api<Feed>('/api/feed?' + params);
       if (request !== r.request) return;
@@ -198,8 +198,8 @@ export function App() {
       if (!append) { unwatch(); r.pages = 0; }
       // Commit synchronously: restoring a position measures the rows right after this call.
       if (!append && !restore) r.collapsed = new Set();
-      // Seen marks still queued on this device count too, so a fresh snapshot never shows them.
-      const visible = r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id) && !(r.prefs.hideSeen && !restore && !append && r.outbox[a.id] === true)) : result.items;
+      // Only explicit dismissals leave the current snapshot.
+      const visible = r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id)) : result.items;
       flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
       r.pages++;
       watch(); save();
@@ -235,7 +235,7 @@ export function App() {
     setTimeout(stop, 2500);
   }
   async function loadView(saved: Session | null, fresh = false) {
-    r.collapsed = new Set(saved && !fresh ? saved.collapsed ?? [] : []);
+    r.collapsed = new Set(saved && !fresh && saved.dismissalVersion === 2 ? saved.collapsed ?? [] : []);
     r.restoring = true; if (listRef.current) listRef.current.style.visibility = 'hidden';
     try {
       if (saved && !fresh) {
@@ -293,12 +293,11 @@ export function App() {
     if (rebuild) { setFeed(null); await getPage(false).catch(() => {}); }
     void refreshStatus();
   }
-  /** New data replaces the snapshot only while the reader is at the top; further down a small pill offers it. */
+  /** New data always waits for an explicit tap, including at the top. */
   function applyUpdates() {
-    r.pendingUpdates = false; setStatus(s => ({ ...s, newUpdates: false }));
+    setStatus(s => ({ ...s, newUpdates: false }));
     setFeed(null); void getPage(false).then(() => window.scrollTo(0, 0)).catch(() => {});
   }
-  const atTop = () => scrollY < 80 && unobscured() && r.prefs.view === 'feed';
 
   async function refreshStatus() {
     try {
@@ -306,7 +305,6 @@ export function App() {
       const refreshing = data.refresh === 'running';
       let newUpdates = r.prefs.view !== 'saved' && r.feed !== null && r.feed.revision !== data.revision;
       if (r.refreshRequested && !refreshing) { r.refreshRequested = false; newUpdates ||= r.prefs.view === 'feed' && r.feed?.revision !== data.revision; }
-      r.pendingUpdates = newUpdates;
       const generated = data.generatedAt ? new Date(data.generatedAt) : null;
       const failed = Array.isArray(data.failedSources) ? data.failedSources.filter(f => f && typeof f.id === 'string') : [];
       // The same failures keep the same array, so the Sources page does not rebuild its rows on every poll.
@@ -318,7 +316,6 @@ export function App() {
         stored: typeof data.articles?.total === 'number' ? data.articles.total : null, revision: Number.isFinite(data.revision) ? data.revision : null,
         refreshing, newUpdates,
       }));
-      if (newUpdates && atTop() && !r.loading) applyUpdates();
       if (data.refresh === 'failed') setMessage(t('error.refresh'));
     } catch { setMessage(t('error.status')); }
   }
@@ -380,11 +377,10 @@ export function App() {
       ids.forEach(id => { delete r.outbox[id]; }); localStorage.setItem('stillfeed-outbox', JSON.stringify(r.outbox));
       // Every row of the batch is seen on the server now, including rows this device had not caught up on.
       setItems(r.items.map(a => a.seen ? a : { ...a, seen: true })); setUnseen(0);
-      if (r.prefs.hideSeen) { setFeed(null); await getPage(false).catch(() => {}); }
+
       notify(ids.length ? t('toast.markedSeen', { n: ids.length }) : t('toast.alreadySeen'), ids.length ? { action: { label: t('toast.undo'), onAction: async () => {
         for (let i = 0; i < ids.length; i += 2000) await api('/api/seen', { ids: ids.slice(i, i + 2000), seen: false });
         setItems(r.items.map(a => changed.has(a.id) ? { ...a, seen: false } : a)); setUnseen(n => n + ids.length);
-        if (r.prefs.hideSeen) { setFeed(null); await getPage(false).catch(() => {}); }
         watch();
       } } } : undefined);
     } catch (error) { setMessage(error instanceof Error ? error.message : t('error.markSeen')); }
@@ -410,12 +406,11 @@ export function App() {
   function openNext() {
     const current = r.route, next = nextAfter(current?.id);
     if (!current || !next) return;
-    if (r.prefs.hideSeen && r.prefs.view === 'feed') { r.collapsed.add(current.id); setItems(r.items.filter(a => a.id !== current.id)); }
     // Replace, not push: Back still returns straight to the feed.
     history.replaceState({ ...history.state }, '', `/${next.kind === 'x' ? 'post' : 'article'}/${next.id}`);
     openDetail(next, null, false);
   }
-  /** A new snapshot of the current view: seen updates are gone, the list starts at the top. */
+  /** A user-requested snapshot starts at the top, keeping seen updates visible. */
   async function reloadFresh() {
     if (r.hotOpen) return void loadHot();
     if (covered() || r.prefs.view !== 'feed') return;
@@ -438,9 +433,9 @@ export function App() {
     window.scrollTo(0, 0);
   }
   function showFeed() {
-    // The article just read leaves the feed right away; the rest of the list keeps its place.
-    const opened = r.route?.id, rebuild = r.sourcesOpen && r.sourcesChanged;
-    flushSync(() => { setRoute(null); setSourcesOpen(false); if (opened && r.prefs.hideSeen && r.prefs.view === 'feed') { r.collapsed.add(opened); setItems(r.items.filter(a => a.id !== opened)); } });
+    // Returning from reading preserves every row until explicit dismissal.
+    const rebuild = r.sourcesOpen && r.sourcesChanged;
+    flushSync(() => { setRoute(null); setSourcesOpen(false); });
     document.title = t('app.name');
     // Changed sources change the view: a fresh snapshot from the top instead of a stale place in the old one.
     if (rebuild) { r.sourcesChanged = false; setFeed(null); window.scrollTo(0, 0); void getPage(false).catch(() => {}); return; }
@@ -462,8 +457,8 @@ export function App() {
     else { history.replaceState({ feedY: r.returnTo?.y || 0 }, '', '/'); showFeed(); }
   }
 
-  const latest = useRef({ applyUpdates, atTop, reloadFresh, openDetail, saveArticle, mark, setMessage, backToFeed, refresh, getPage, watch, save, flush, refreshStatus, followRoute });
-  latest.current = { applyUpdates, atTop, reloadFresh, openDetail, saveArticle, mark, setMessage, backToFeed, refresh, getPage, watch, save, flush, refreshStatus, followRoute };
+  const latest = useRef({ applyUpdates, reloadFresh, openDetail, saveArticle, mark, setMessage, backToFeed, refresh, getPage, watch, save, flush, refreshStatus, followRoute });
+  latest.current = { applyUpdates, reloadFresh, openDetail, saveArticle, mark, setMessage, backToFeed, refresh, getPage, watch, save, flush, refreshStatus, followRoute };
   const actions = useMemo<CardActions>(() => ({
     open: (article, from) => latest.current.openDetail(article, from),
     save: (article, on) => void latest.current.saveArticle(article, on),
@@ -475,12 +470,10 @@ export function App() {
   useEffect(() => {
     history.scrollRestoration = 'manual';
     const l = () => latest.current;
-    let hiddenAt = 0;
     const onVisibility = () => {
       l().watch();
-      if (document.hidden) { hiddenAt = Date.now(); return; }
+      if (document.hidden) return;
       void l().flush(); void l().refreshStatus();
-      if (hiddenAt && Date.now() - hiddenAt > FRESH_AFTER) void l().reloadFresh();
     };
     const onPop = () => void l().followRoute();
     const onOnline = () => void l().flush();
@@ -492,8 +485,6 @@ export function App() {
       const y = scrollY, delta = y - lastY; lastY = y;
       setShowScrollTop(y > 300);
       if (y < 60) setHeaderHidden(false); else if (delta > 6) setHeaderHidden(true); else if (delta < -6) setHeaderHidden(false);
-      // Coming back to the top takes in waiting updates without a tap.
-      if (r.pendingUpdates && l().atTop() && !r.loading) l().applyUpdates();
     };
     const onPageHide = () => l().save();
     const onKey = (event: KeyboardEvent) => {
@@ -513,8 +504,8 @@ export function App() {
       try {
         const settingsLoaded = api<Settings>('/api/settings').then(setSettings);
         void optional<Config>('/api/config').then(value => setConfig(value && typeof value === 'object' && 'ai' in value ? value : null));
-        // A session older than FRESH_AFTER starts over, so what was seen last time is gone.
-        await loadView(loadSession('stillfeed-session', r.prefs, FRESH_AFTER), r.prefs.view === 'saved');
+        // Restore the batch until it expires on the server; visibility and age never dismiss rows.
+        await loadView(loadSession('stillfeed-session', r.prefs), r.prefs.view === 'saved');
         // The feed is on screen: now the rest (sources summary, drawer, reader) without delaying it.
         void loadLibrary();
         setTimeout(() => idle(() => void prefetch().then(() => setChromeReady(true))), 1000);
@@ -623,12 +614,12 @@ export function App() {
   const viewed = items.filter(a => a.seen || r.outbox[a.id] === true).length;
   const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
   const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
-  const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', view === 'feed' && !prefs.hideSeen ? t('feed.filters.showingSeen') : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
+  const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
   const sourceCount = library ? library.sources.length : null;
   const sourcesSummary = useMemo(() => library ? summarize(library.sources, library.accounts, status.failed) : null, [library, status.failed]);
-  const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : prefs.hideSeen ? 'caughtUp' : 'noUpdates';
+  const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : 'noUpdates';
   // First run: the panel leads the feed until sources, X and AI are set up, or until it is hidden.
   const setupNeeded = sourceCount === 0 || (config ? !config.ai.provider || !config.x.configured : false);
   const showSetup = view === 'feed' && !hotOpen && !booting && setupNeeded && !setupDismissed && emptyKind !== 'noSources';
@@ -637,7 +628,7 @@ export function App() {
     <a className="skip" href="#feed">{t('skip')}</a>
     <div id="readerOptions" hidden={route !== null || sourcesOpen}>
       {/* Read / total of this snapshot; it stays in the corner when the bar slides away. */}
-      {!hotOpen && view === 'feed' && total > 0 && <span id="readCount" className={`read-count${headerHidden ? ' read-count-corner' : ''}`} aria-label={t('feed.readCount', { read: total - unseen, total })}>{total - unseen}/{total}</span>}
+      {!hotOpen && view === 'feed' && total > 0 && headerHidden && <span className="read-count read-count-corner" aria-label={t('feed.readCount', { read: total - unseen, total })}>{total - unseen}/{total}</span>}
       <header className={`topbar${headerHidden ? ' topbar-hidden' : ''}`}>
         <nav className="view-tabs" aria-label={t('tabs.label')}>
           <button id="viewHot" aria-pressed={hotOpen} onClick={() => openTab('hot')}>{t('tabs.hot')}{hot.length > 0 && <span className="tab-count" aria-label={t('tabs.count', { n: hot.length })}>{hot.length}</span>}</button>
@@ -645,7 +636,7 @@ export function App() {
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          <button id="feedDiscuss" className="ghost-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
+          <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
@@ -663,7 +654,7 @@ export function App() {
       <main className="reader" ref={readerRef}>
         {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
         <div id="feedView" hidden={hotOpen}>
-        {view === 'feed' && items.length > 0 && <div className="feed-cleanup"><button id="hideViewed" className="ghost-button" disabled={!viewed} onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button></div>}
+        {view === 'feed' && items.length > 0 && <div className="feed-cleanup"><span id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})}>{total-unseen}/{total}</span><button id="hideViewed" className="ghost-button" disabled={!viewed} onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button></div>}
         {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
         <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>
         <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>

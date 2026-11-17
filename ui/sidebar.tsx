@@ -90,7 +90,6 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
       <Section id="view" title={t('settings.view')} icon="inbox">
         {!saved && <Segmented id="scope" label={t('settings.scope')} value={prefs.scope} options={[['ai', t('settings.scope.ai')], ['all', t('settings.scope.all')]]} onChange={scope => change({ scope }, true)} />}
         <Segmented id="format" label={t('settings.format')} value={prefs.kind} options={[['all', t('settings.format.all')], ['article', t('settings.format.article')], ['x', t('settings.format.x')]]} onChange={kind => change({ kind })} />
-        {!saved && <Toggle id="hideSeen" label={t('settings.hideSeen')} hint={t('settings.hideSeen.hint')} checked={prefs.hideSeen} onChange={on => { if (on !== prefs.hideSeen) change({ hideSeen: on }, true); }} />}
         {counts && <div className="side-row"><span><b>{t('settings.unseen')}</b><small><span id="unseenBubble" aria-label={t('settings.unseen.hint', { unseen: counts.unseen, total: counts.total })}>{counts.unseen.toLocaleString('en')} / {counts.total.toLocaleString('en')}</span></small></span>
           <AlertDialog onOpenChange={(open, details) => { onConfirmOpen(open); if (!open && details.returnValue === 'confirm') markAll(); }} onOpenChangeComplete={open => { if (!open) onConfirmSettled(); }}>
             <AlertDialogTrigger id="markAllSeen" className="ghost-button" disabled={!counts.total}><Icon name="checkAll" size={15} />{t('settings.markAll')}</AlertDialogTrigger>

@@ -36,6 +36,9 @@ try{
   await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({body:'Original'}));await ctx.route('**/api/image/**',r=>r.fulfill({status:404,body:''}));
   const p=await ctx.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
   await p.goto(base);await p.locator('#feed .feed-card').first().waitFor();
+  check(width+': header controls never overlap',await p.evaluate(()=>{const a=document.querySelector('.view-tabs').getBoundingClientRect(),b=document.querySelector('.top-actions').getBoundingClientRect(),c=document.querySelector('#readCount').getBoundingClientRect();return a.right<=b.left+1&&c.top>=a.bottom-1}));
+  const retained=await p.locator('#feed .feed-card.article').first().getAttribute('data-id');await p.goto(base+'/article/'+retained);await p.locator('#articleBack').click();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reading never dismisses its row',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
+  await p.reload();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reload preserves read rows',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
   await p.waitForFunction(()=>document.querySelector('#hideViewed')&&!document.querySelector('#hideViewed').disabled);
   const first=await p.locator('#feed .feed-card.seen').first().getAttribute('data-id');await post('/api/article/'+first+'/saved',{saved:true});
   await p.locator('#hideViewed').click();check(width+': explicit hide removes seen cards',await p.locator('#feed .feed-card.seen').count()===0);

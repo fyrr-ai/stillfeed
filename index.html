@@ -123,8 +123,8 @@ svg { flex: none; }
 .view-tabs .tab-count { position: relative; display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--subtle-bg); color: var(--text-low); font-size: 11px; font-weight: 500; vertical-align: 2px; }
 .view-tabs button[aria-pressed=true] .tab-count { color: var(--text-high); }
 .top-actions { display: flex; align-items: center; margin-left: auto; }
-.read-count { position: fixed; z-index: 11; top: calc(env(safe-area-inset-top) + 24px); right: max(calc((100vw - var(--column)) / 2 + 52px), 52px); transform: translateY(-50%); padding: 3px 7px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-mid); font-family: var(--font-mono); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; letter-spacing: .01em; pointer-events: none; transition: right .2s ease, top .2s ease, background-color .2s ease, border-color .2s ease; }
-.read-count-corner { top: calc(env(safe-area-inset-top) + 16px); right: max(calc((100vw - var(--column)) / 2 + 10px), 10px); border-color: var(--border-subtle); background: color-mix(in srgb, var(--subtle-bg) 85%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.read-count { padding: 3px 7px; color: var(--text-mid); font-size: var(--text-mono); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-count-corner { position: fixed; z-index: 11; top: calc(env(safe-area-inset-top) + 8px); right: max(calc((100vw - var(--column)) / 2 + 10px), 10px); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--subtle-bg); pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .read-count { transition: none; } }
 #readerOptions { display: flex; flex-direction: column; min-height: 100dvh; }
 .reader { flex: 1; width: 100%; max-width: var(--column); margin: 0 auto; padding: 0; touch-action: pan-y pinch-zoom; }
@@ -483,7 +483,7 @@ body { background: var(--canvas); }
 .preview-loading, .skeleton > div { background: var(--subtle-bg); }
 }
 .discuss-button { gap: 6px; min-height: var(--tap); }
-.feed-cleanup { display: flex; justify-content: flex-end; min-height: 44px; border-bottom: 1px solid var(--border-subtle); }
+.feed-cleanup { display: flex; align-items: center; justify-content: space-between; padding-inline: 8px; min-height: 44px; border-bottom: 1px solid var(--border-subtle); }
 .feed-cleanup .ghost-button { color: var(--text-low); }
 .chat-panel { width: min(480px, 100vw); height: var(--visual-viewport-height, 100dvh); max-height: 100%; display: flex; flex-direction: column; background: var(--app-bg); color: var(--text-high); border-left: 1px solid var(--border); padding: max(12px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom)); }
 .chat-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -518,7 +518,7 @@ body { background: var(--canvas); }
 .chat-error { color: var(--danger); font-size: var(--text-label); }
 .chat-error button { margin-top: 8px; }
 @media (max-width: 600px) { .chat-panel { width: 100vw; border: 0; padding-inline: 16px; } .discuss-button span { display: none; } }</style>
-  <script type="module" src="/assets/build/main-ncer45a2.js"></script>
+  <script type="module" src="/assets/build/main-zjtpv3sf.js"></script>
 </head>
 <body>
 <div id="root"></div>
