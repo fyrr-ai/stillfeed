@@ -18,7 +18,7 @@ function fixture() {
   const ids = records.map(record => hash(record.url));
   return { store, topics, directory, ids, close: () => { store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
-const filters: Filters = { scope: 'ai', kind: 'all', q: '', hideSeen: false, savedOnly: true, hours: 72 };
+const filters: Filters = { categories: ['ai','data'], kind: 'all', q: '', hideSeen: false, savedOnly: true, hours: 72 };
 
 test('old and new saved items are grouped once, reuse topics, and include cached article and tweet text', async () => {
   const f = fixture();

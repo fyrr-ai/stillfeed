@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {Store,type Filters} from './store';
 import {Personal,type Rating,type Candidate,personalPrompt} from './personal';
 
-const filters:Filters={scope:'all',kind:'all',q:'',hideSeen:false,hours:72,personalOnly:true};
+const filters:Filters={categories:[],kind:'all',q:'',hideSeen:false,hours:72,personalOnly:true};
 function fixture(count=75){
   const directory=mkdtempSync(join(tmpdir(),'stillfeed-personal-')),store=new Store(directory),personal=new Personal(store),now=Date.now();
   store.ingest(Array.from({length:count},(_,i)=>({url:`https://example.com/${i}`,title:`Article ${i}`,source:'Journal',published_at:new Date(now-i*60000).toISOString(),ai_is_related:i%2===0,summary:'Practical coding agent technique.'})),new Date(now).toISOString());
@@ -18,7 +18,7 @@ const accept=async(_:string,candidates:Candidate[]):Promise<Rating[]>=>candidate
 
 test('Hot rates and shows only its actual Feed snapshot, including its filters and hidden state',async()=>{
   const {store,personal,close}=fixture(8);try{
-    const baseFilters={...filters,personalOnly:false,scope:'ai' as const,q:'Article 2'};
+    const baseFilters={...filters,personalOnly:false,categories:['ai','data'] as ('ai'|'data')[],q:'Article 2'};
     const base=store.feed(baseFilters);expect(base.total).toBe(1);expect(personal.status().total).toBe(1);
     let offered:Candidate[]=[];await personal.work(async(i,c)=>{offered=c;return accept(i,c);},randomUUID());
     expect(offered.map(c=>c.id)).toEqual(base.items.map(a=>a.id));
@@ -41,7 +41,7 @@ test('Hot rates beyond the old top 100, has no accepted-item quota, and paginate
   const {store,personal,close}=fixture(135);try{
     while(await personal.work(accept,randomUUID())){}
     expect(personal.status()).toMatchObject({total:135,rated:135,matched:135,pending:0});
-    expect(store.feed({...filters,scope:'ai'}).total).toBe(68);
+    expect(store.feed({...filters,categories:['ai','data']}).total).toBe(68);
     const page=store.feed(filters);expect(page.total).toBe(135);expect(page.items).toHaveLength(30);
     expect(page.items[0]?.personalReason).toContain('coding agents');
     expect(page.items.some(a=>!a.ai)).toBe(true);

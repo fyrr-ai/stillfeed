@@ -1,3 +1,4 @@
+import {parseCategories} from './categories';
 import { Store, articleView, REFRESH_EVERY, refreshHours, type Filters } from './store';
 import { Media } from './media';
 import {Reader,readable} from './reader';
@@ -107,13 +108,16 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(chat)return json(chats.view(chat[1]!));
         if(path==='/api/feed') {
           const p=url.searchParams,scope=p.get('scope')||'ai',kind=p.get('kind')||'all';
+          const categories=parseCategories(p.has('categories')?(p.get('categories')?p.get('categories')!.split(','):[]):undefined,scope);
           if(!['ai','all'].includes(scope)||!['all','article','x'].includes(kind))throw new Error('Unknown feed filter');
           const topic=p.get('topic');
           if(topic!==null&&(p.get('saved')!=='1'||!/^([a-f0-9]{32}|ungrouped)$/.test(topic)))throw new Error('Invalid saved topic');
-          const filters:Filters={scope:scope as Filters['scope'],kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',personalOnly:p.get('personal')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
+          const filters:Filters={categories,kind:kind as Filters['kind'],q:(p.get('q')||'').slice(0,300),savedOnly:p.get('saved')==='1',personalOnly:p.get('personal')==='1',hideSeen:p.get('hideSeen')==='1',hours:integer(p.get('hours'),store.settings().windowHours,24,2160),seenBefore:p.has('seenBefore')?integer(p.get('seenBefore'),0,1,Date.now()+60000):undefined,revision:p.has('revision')?integer(p.get('revision'),0,1,Number(store.meta('revision'))):undefined};
           if(topic)filters.savedTopic=topic;
           if(p.has('from')){if(!filters.personalOnly||!/^[a-f0-9-]{36}$/.test(p.get('from')!))throw new Error('Invalid Hot feed batch');filters.personalBatch=p.get('from')!;}
-          return json(store.feed(filters,p.get('batch')||undefined,integer(p.get('offset'),0,0,100000),integer(p.get('limit'),30,30,3000)));
+          const page=store.feed(filters,p.get('batch')||undefined,integer(p.get('offset'),0,0,100000),integer(p.get('limit'),30,30,3000));
+          // Loaded older bundles still read scope; new clients and persisted snapshots use categories.
+          return json({...page,filters:{...page.filters,scope:page.filters.categories.length?'ai':'all'}});
         }
         const entry=/^\/api\/article\/([a-f0-9]{32})$/.exec(path);
         if(entry){const article=store.article(entry[1]!);return article?json(articleView({...article,saved_at:store.db.query('SELECT at FROM saved WHERE article_id=?').get(String(article.id))?1:0})):json({error:'Unknown article'},404);}

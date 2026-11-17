@@ -577,3 +577,13 @@ button.photo { cursor: zoom-in; }
 .hot-intro button { margin-left: 8px; color: var(--text-high); text-decoration: underline; }
 .interests-editor { display: grid; gap: 10px; }
 .interests-editor textarea { width: 100%; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--app-bg); color: var(--text-high); font: inherit; font-size: 13px; }
+
+/* Feed categories are independent choices; Everything clears the category filter. */
+.category-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.category-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.category-option { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; }
+.category-option:has([data-checked]) { background: var(--gray-alpha-100); border-color: var(--text-low); }
+.category-check { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid var(--text-low); border-radius: 4px; background: none; color: var(--text-high); }
+.category-check:focus-visible { outline: 2px solid var(--text-high); outline-offset: 3px; }
+.category-heading .ghost-button { min-height: 32px; padding: 0 8px; color: var(--text-low); }
+.category-heading [aria-pressed=true] { color: var(--text-high); border-color: var(--text-low); }

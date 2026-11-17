@@ -53,9 +53,9 @@ try {
     for (let i = 0; i < runs; i++) { const t = performance.now(); const r = await fetch(base + path(), { headers: { 'Accept-Encoding': 'gzip, br' } }); await r.arrayBuffer(); if (!r.ok) throw new Error(`${path()} returned ${r.status}`); times.push(performance.now() - t); }
     return times.sort((a, b) => a - b)[Math.floor(times.length / 2)]!;
   };
-  await fetch(base + '/api/feed?scope=ai&kind=all&hideSeen=1'); // warm the statement cache like a running server
-  report('new feed snapshot (/api/feed)', await median(() => '/api/feed?scope=ai&kind=all&hideSeen=1'), BUDGET.feedMs, 'ms');
-  const first = await (await fetch(base + '/api/feed?scope=all&kind=all&hideSeen=0')).json() as { batch: string };
+  await fetch(base + '/api/feed?categories=ai,data&kind=all&hideSeen=1'); // warm the statement cache like a running server
+  report('new feed snapshot (/api/feed)', await median(() => '/api/feed?categories=ai,data&kind=all&hideSeen=1'), BUDGET.feedMs, 'ms');
+  const first = await (await fetch(base + '/api/feed?categories=&kind=all&hideSeen=0')).json() as { batch: string };
   report('next page of a snapshot', await median(() => `/api/feed?batch=${first.batch}&offset=60`), BUDGET.pageMs, 'ms');
   report('/api/status', await median(() => '/api/status'), BUDGET.statusMs, 'ms');
   report('personal selection status', await median(() => '/api/personal'), BUDGET.hotMs, 'ms');

@@ -7,7 +7,7 @@ import {Store,canonical,hash,refreshHours,type Filters} from './store';
 import {publicURL} from './media';
 const paths:string[]=[];
 afterEach(()=>{for(const p of paths.splice(0))rmSync(p,{recursive:true,force:true});});
-const prefs:Filters={scope:'all',kind:'all',q:'',hideSeen:false,hours:72};
+const prefs:Filters={categories:[],kind:'all',q:'',hideSeen:false,hours:72};
 const records=()=>Array.from({length:75},(_,i)=>({url:`https://example.com/${i}`,title:`Article ${i} about testing`,source:'Test journal',site_id:'test',published_at:'2026-11-14T12:00:00Z',ai_is_related:i===0}));
 async function fixture(){const dir=mkdtempSync(join(tmpdir(),'stillfeed-store-'));paths.push(dir);return {dir};}
 const load=(store:Store)=>store.ingest(records(),'2026-11-15T04:00:00Z');
@@ -15,7 +15,7 @@ test('ingest keeps canonical URLs, seen marks, filters and indexed search',async
  const {dir}=await fixture();const store=new Store(dir);
  try{
   load(store);load(store);expect(store.feed(prefs).total).toBe(75);store.mark([hash('https://example.com/0')],true);
-  expect(store.feed({...prefs,scope:'ai'}).items[0]?.seen).toBe(true);expect(store.feed({...prefs,scope:'ai'}).total).toBe(1);
+  expect(store.feed({...prefs,categories:['ai','data']}).items[0]?.seen).toBe(true);expect(store.feed({...prefs,categories:['ai','data']}).total).toBe(1);
   expect(store.feed({...prefs,q:'Article 23'}).total).toBe(1);expect(store.feed({...prefs,kind:'x'}).total).toBe(0);
   expect(store.feed({...prefs,hideSeen:true}).total).toBe(74);
   const sources=store.sources() as {id:string}[];store.setSource(sources[0]!.id,false);expect(store.feed(prefs).total).toBe(0);store.setSource(sources[0]!.id,true);expect(store.feed(prefs).total).toBe(75);

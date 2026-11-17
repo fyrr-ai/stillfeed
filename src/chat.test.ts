@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Store, hash, type Filters } from './store';
 import { Reader } from './reader';
 import { Chats, chatContext, chatPrompt, linkedArticleURLs } from './chat';
-const filters: Filters = {scope:'all',kind:'all',q:'',hideSeen:false,hours:72};
+const filters: Filters = {categories:[],kind:'all',q:'',hideSeen:false,hours:72};
 function fixture() {
  const dir=mkdtempSync(join(tmpdir(),'stillfeed-chat-')),store=new Store(dir),chats=new Chats(store),previous=process.env.STILLFEED_LLM;
  process.env.STILLFEED_LLM='codex';

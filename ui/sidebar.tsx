@@ -1,3 +1,5 @@
+import {Checkbox,CheckboxGroup,CheckboxIndicator} from '@ui-sdk/react/checkbox';
+import {CATEGORIES,parseCategories} from '../src/categories';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogDescription, AlertDialogTitle, AlertDialogTrigger } from '@ui-sdk/react/alert-dialog';
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/react/collapsible';
@@ -107,7 +109,13 @@ export function Sidebar({ prefs, query, setQuery, change, settings, applySetting
       </InputGroup>
 
       <Section id="view" title={t('settings.view')} icon="inbox">
-        {!saved && <Segmented id="scope" label={t('settings.scope')} value={prefs.scope} options={[['ai', t('settings.scope.ai')], ['all', t('settings.scope.all')]]} onChange={scope => change({ scope }, true)} />}
+        {!saved && <div className="side-field">
+          <div className="category-heading"><span className="side-field-label" id="categoriesLabel">{t('settings.categories')}</span><button className="ghost-button" aria-pressed={!prefs.categories.length} onClick={()=>change({categories:[]},true)}>{t('settings.categories.all')}</button></div>
+          <CheckboxGroup id="categories" className="category-options" aria-labelledby="categoriesLabel" value={prefs.categories} onValueChange={value=>change({categories:parseCategories(value)},true)}>
+            {CATEGORIES.map(category=><label className="category-option" key={category}><Checkbox className="category-check" value={category}><CheckboxIndicator><span aria-hidden="true">✓</span></CheckboxIndicator></Checkbox>{t(category==='ai'?'settings.category.ai':'settings.category.data')}</label>)}
+          </CheckboxGroup>
+          <p className="field-help">{t('settings.categories.hint')}</p>
+        </div>}
         <Segmented id="format" label={t('settings.format')} value={prefs.kind} options={[['all', t('settings.format.all')], ['article', t('settings.format.article')], ['x', t('settings.format.x')]]} onChange={kind => change({ kind })} />
         {counts && <div className="side-row"><span><b>{t('settings.unseen')}</b><small><span id="unseenBubble" aria-label={t('settings.unseen.hint', { unseen: counts.unseen, total: counts.total })}>{counts.unseen.toLocaleString('en')} / {counts.total.toLocaleString('en')}</span></small></span>
           <AlertDialog onOpenChange={(open, details) => { onConfirmOpen(open); if (!open && details.returnValue === 'confirm') markAll(); }} onOpenChangeComplete={open => { if (!open) onConfirmSettled(); }}>

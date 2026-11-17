@@ -146,7 +146,9 @@ export async function classify(store:Store,input:RecordData[],tweets:unknown[],u
     const original=String(record.title??''),text=`${original} ${String(record.summary||'')}`;
     for(const [key,value] of Object.entries(addAiRelevance({...record,title:text})))if(key.startsWith('ai_'))record[key]=value;
     if(record.trusted_ai){record.ai_is_related=true;record.ai_relevance_reason='ai_source';}
-    else if(!record.ai_is_related&&hasDataSignal(text)){record.ai_is_related=true;record.ai_relevance_reason='data_signal';}
+    record.ai_topic=Boolean(record.ai_is_related);
+    record.data_is_related=hasDataSignal(text);
+    if(!record.ai_is_related&&record.data_is_related){record.ai_is_related=true;record.ai_relevance_reason='data_signal';}
     record.id=String(record.id||hash(String(record.url)));
   }
   await triage(store,records,useModel);

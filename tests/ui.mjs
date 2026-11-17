@@ -54,6 +54,28 @@ try{
  const sources=await request('/api/sources'),source=sources.find(s=>s.name===first.items[0].source);await request('/api/sources',{id:source.id,enabled:false});const muted=await request('/api/feed?scope=all');check('source configuration affects a new query',muted.total<first.total);await request('/api/sources',{id:source.id,enabled:true});
  await request('/api/settings',{windowHours:168,refreshEvery:3});check('settings are persisted in SQLite',(await request('/api/settings')).windowHours===168);await request('/api/settings',{windowHours:72,refreshEvery:2,nightPause:true});
  browser=await chromium.launch({executablePath:process.env.CHROME,args:['--no-sandbox']});
+ // Independent category choices, persistence, and legacy browser preference migration.
+ {
+  const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({status:404,body:''}));
+  await ctx.route('**/api/image/**',r=>r.fulfill({status:404,body:''}));
+  await ctx.addInitScript(()=>{if(!localStorage.getItem('stillfeed-preferences'))localStorage.setItem('stillfeed-preferences',JSON.stringify({view:'feed',scope:'ai',kind:'all',q:'',hideSeen:true,autoSeen:true}));});
+  const p=await ctx.newPage();await p.goto(base);await p.locator('#feed .feed-card').first().waitFor();
+  const options=async()=>{await p.locator('#optionsButton').click();await p.locator('#categories').waitFor();};
+  await options();
+  const ai=()=>p.locator('#categories').getByRole('checkbox',{name:'AI',exact:true}),data=()=>p.locator('#categories').getByRole('checkbox',{name:'Data',exact:true});
+  check('legacy AI & data preferences become two selected categories',await ai().isChecked()&&await data().isChecked());
+  let response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&new URL(r.url()).searchParams.get('categories')==='data');await ai().uncheck();
+  check('Data can be selected independently',(await (await response).json()).filters.categories.join(',')==='data'&&await data().isChecked());
+  response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&new URL(r.url()).searchParams.get('categories')==='ai,data');await ai().check();await response;
+  check('AI and Data can be selected together',await ai().isChecked()&&await data().isChecked());
+  response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&new URL(r.url()).searchParams.get('categories')==='ai');await data().uncheck();await response;
+  await p.reload();await p.locator('#feed .feed-card').first().waitFor();await options();
+  check('individual category selection survives reload',await ai().isChecked()&&!await data().isChecked());
+  response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&new URL(r.url()).searchParams.get('categories')==='');await p.getByRole('button',{name:'Everything',exact:true}).click();await response;
+  check('Everything explicitly clears both category restrictions',!await ai().isChecked()&&!await data().isChecked());
+  await ctx.close();
+ }
  for(const startup of ['ready','slow','failed']){
   const ctx=await browser.newContext({viewport:{width:390,height:844}});
   await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({status:404,body:''}));
@@ -94,8 +116,8 @@ try{
   const reveal=async()=>{if(await p.locator('.topbar-hidden').count()){await p.evaluate(()=>scrollBy(0,-20));await p.locator('.topbar-hidden').waitFor({state:'detached'});await sleep(250);}};
   const open=async()=>{await reveal();await p.getByRole('button',{name:'Feed options',exact:true}).click();await p.locator('#optionsSheet').waitFor({state:'visible'});};
   const close=async()=>{await p.getByRole('button',{name:'Close options',exact:true}).click();await p.locator('#optionsSheet').waitFor({state:'hidden'});};
-  const optionLabels={scope:{ai:'AI & data',all:'Everything'},format:{all:'All',article:'Articles',x:'X'}};
-  const select=async(id,value)=>{await p.locator(`#${id}`).getByRole('radio',{name:optionLabels[id][value],exact:true}).click();await sleep(250);};
+  const optionLabels={scope:{ai:'AI + Data',all:'Everything'},format:{all:'All',article:'Articles',x:'X'}};
+  const select=async(id,value)=>{if(id==='scope'){if(value==='all')await p.getByRole('button',{name:'Everything',exact:true}).click();else for(const category of ['AI','Data'])await p.locator('#categories').getByRole('checkbox',{name:category,exact:true}).check();}else await p.locator(`#${id}`).getByRole('radio',{name:optionLabels[id][value],exact:true}).click();await sleep(250);};
   check(`${width}: English, one responsive feed`,await p.locator('html').getAttribute('lang')==='en'&&await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   check(`${width}: React renders ready-made SDK components`,await p.evaluate(()=>Boolean(document.querySelector('#optionsButton'))&&Boolean(document.querySelector('#root')?.firstElementChild)));
   if(width===390){
@@ -274,7 +296,7 @@ try{
     const seenNow=()=>sql('SELECT COUNT(*) FROM seen')[0][0];await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();const beforeCancel=JSON.stringify(sql('SELECT article_id FROM seen ORDER BY article_id'));await p.getByRole('button',{name:'Cancel',exact:true}).click();await p.locator('#markAllConfirm').waitFor({state:'hidden'});check('mark all asks first and Cancel changes nothing',JSON.stringify(sql('SELECT article_id FROM seen ORDER BY article_id'))===beforeCancel);await close();
     // Cards on screen after Cancel became seen meanwhile; the baseline is taken while the confirmation covers the feed.
     await open();await p.getByRole('button',{name:'Mark all as seen',exact:true}).click();await p.locator('#markAllConfirm').waitFor();const seenBeforeMarkAll=seenNow();await p.getByRole('button',{name:'Mark as seen',exact:true}).click();await p.locator('#optionsSheet').waitFor({state:'hidden'});await p.getByRole('button',{name:'Undo',exact:true}).waitFor();
-    const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const remaining=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=1`);const toastText=await p.locator('.toast-title').innerText();const reported=Number(toastText.replace(/[^0-9]/g,''));
+    const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const remaining=await request(`/api/feed?categories=${prefs.categories.join(',')}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=1`);const toastText=await p.locator('.toast-title').innerText();const reported=Number(toastText.replace(/[^0-9]/g,''));
     check('mark all as seen covers the whole view, not just loaded cards',remaining.total===0&&reported>0&&seenNow()-seenBeforeMarkAll>=reported&&await p.locator('#feed .feed-card:not(.seen)').count()===0,`${remaining.total} left, ${toastText}, diff ${seenNow()-seenBeforeMarkAll}, unseen cards ${await p.locator('#feed .feed-card:not(.seen)').count()}`);
     const marked=seenNow();await p.getByRole('button',{name:'Undo',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#feed .feed-card:not(.seen)').length>0);
     const restored=seenNow();check('Undo restores exactly the rows mark-all changed',restored===seenBeforeMarkAll&&marked>seenBeforeMarkAll,`${seenBeforeMarkAll} before, ${marked} marked, ${restored} after Undo`);
@@ -383,7 +405,7 @@ try{
     await p.locator('#sourcesBack').click();await p.locator('#feedView').waitFor({state:'visible'});await p.waitForSelector('#feed .feed-card');
     check('Back from a directly opened Sources page goes to the feed',await p.evaluate(()=>location.pathname)==='/');
   }
-  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const live=await request(`/api/feed?scope=${prefs.scope}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
+  if(width===390){await p.evaluate(()=>scrollTo(0,0));await sleep(300);await open();const bubble=await p.locator('#unseenBubble').innerText().catch(()=>'');await close();const prefs=await p.evaluate(()=>JSON.parse(localStorage.getItem('stillfeed-preferences')));const live=await request(`/api/feed?categories=${prefs.categories.join(',')}&kind=${prefs.kind}&q=${encodeURIComponent(prefs.q)}&hideSeen=${prefs.hideSeen?1:0}`);
     check('the top bar shows unseen / all for the current view',/^\d[\d,]*\s*\/\s*\d[\d,]*$/.test(bubble.replace(/\s+/g,' ').trim())&&Number(bubble.split('/')[1].replace(/\D/g,''))>0,bubble);}
   const xArticle=idOf(created.xArticle),quoted=idOf(created.quote);
   await p.goto(`${base}/post/${xArticle}`);await p.locator('#readingContent .feed-card.tweet').waitFor();check(`${width}: an X Article shows as an article card in its post`,await p.locator('#readingContent .x-article b').innerText()==='Agents in production');

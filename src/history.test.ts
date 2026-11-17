@@ -19,7 +19,7 @@ test('retention keeps Saved content, summaries and active batches, with a comple
   store.db.query('INSERT INTO batches VALUES(?,?,?,?,?)').run('active',now,1,'{}',1);store.db.query('INSERT INTO batch_items VALUES(?,?,?)').run('active',0,ids.active!);
   expect(store.prune(now)).toBe(1);expect(store.article(ids.expired!)).toBeNull();expect(store.article(ids.saved!)).not.toBeNull();expect(store.article(ids.active!)).not.toBeNull();expect(reader.cached(ids.saved!)?.text).toBe('Useful tool');expect(summaries.cached(ids.saved!,content)?.points.length).toBe(3);expect(jobs.job(ids.expired!)).toBeNull();expect(jobs.job(ids.saved!)).not.toBeNull();
   const source=store.sources()[0] as {id:string};store.setSource(source.id,false);
-  const saved=store.feed({scope:'ai',kind:'all',q:'',hideSeen:false,hours:72,savedOnly:true});expect(saved.total).toBe(1);expect(saved.items[0]?.id).toBe(ids.saved);expect(saved.items[0]?.saved).toBe(true);
+  const saved=store.feed({categories:['ai','data'],kind:'all',q:'',hideSeen:false,hours:72,savedOnly:true});expect(saved.total).toBe(1);expect(saved.items[0]?.id).toBe(ids.saved);expect(saved.items[0]?.saved).toBe(true);
   expect(existsSync(join(directory,'before-retention.db'))).toBe(true);const backup=new Database(join(directory,'before-retention.db'),{readonly:true});expect((backup.query('SELECT COUNT(*) AS n FROM articles').get() as {n:number}).n).toBe(4);backup.close();
   expect(store.prune(now)).toBe(0);
  }finally{store.close();rmSync(directory,{recursive:true,force:true});}

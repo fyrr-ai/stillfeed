@@ -1,10 +1,11 @@
+import {CATEGORIES,parseCategories} from '../src/categories';
 import type { Feed, Preferences, Session } from './lib';
-export const defaults: Preferences = {view:'feed',scope:'ai',kind:'all',q:'',hideSeen:true};
+export const defaults: Preferences = {view:'feed',categories:[...CATEGORIES],kind:'all',q:'',hideSeen:true};
 export const PAGE_SIZE = 30;
 export function loadPreferences(): Preferences {
   try {
     const saved = JSON.parse(localStorage.getItem('stillfeed-preferences') || 'null');
-    if (saved) return { view: saved.view === 'saved' ? 'saved' : saved.view === 'hot' ? 'hot' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
+    if (saved) return { view: saved.view === 'saved' ? 'saved' : saved.view === 'hot' ? 'hot' : 'feed', categories: parseCategories(saved.categories,saved.scope), kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
       ...(typeof saved.savedTopic === 'string' && /^([a-f0-9]{32}|ungrouped)$/.test(saved.savedTopic) ? { savedTopic: saved.savedTopic } : {}) };
   } catch {}
   return { ...defaults };
@@ -15,7 +16,10 @@ export function loadSession(key: string, preferences?: Preferences, maxAge = Inf
     const session = JSON.parse(sessionStorage.getItem(key) || 'null') as (Session & {dismissalVersion?:number;collapsed?:unknown}) | null;
     if (!session || !session.preferences || typeof session.batch !== 'string' || !Number.isInteger(session.pages) || session.pages < 1) return null;
     session.preferences.view ??= 'feed';
-    if (preferences && JSON.stringify(session.preferences) !== JSON.stringify(preferences)) return null;
+    const {scope,...previous}=session.preferences as Preferences & {scope?:unknown};
+    session.preferences={...previous,categories:parseCategories(previous.categories,scope)};
+    if(preferences && (['view','kind','q','hideSeen','savedTopic'] as const).some(key=>session.preferences[key]!==preferences[key]))return null;
+    if(preferences && session.preferences.categories.join(',')!==preferences.categories.join(','))return null;
     if (Date.now() - (session.at ?? 0) > maxAge) return null;
     // Preserve explicit hides made by the previous UI; the next save writes only the batch ID.
     if(session.dismissalVersion===2&&Array.isArray(session.collapsed))session.legacyDismissals=session.collapsed.filter((id:unknown):id is string=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id));
@@ -30,7 +34,7 @@ export function feedURL(preferences: Preferences, restore?: {batch:string;offset
   else {
     params.set('saved',preferences.view==='saved'?'1':'0');
     params.set('personal',preferences.view==='hot'?'1':'0');
-    params.set('scope',preferences.scope);params.set('kind',preferences.kind);params.set('q',preferences.q);params.set('hideSeen','0');
+    params.set('categories',preferences.categories.join(','));params.set('kind',preferences.kind);params.set('q',preferences.q);params.set('hideSeen','0');
     if(preferences.view==='hot'){const base=loadSession('stillfeed-session-feed');if(base)params.set('from',base.batch);}
     if(preferences.view==='saved'&&preferences.savedTopic)params.set('topic',preferences.savedTopic);
     if(previous&&preferences.view==='feed'){params.set('seenBefore',String(previous.seenBefore));params.set('revision',String(previous.revision));}

@@ -194,7 +194,7 @@ export function App({initialFeed}: {initialFeed?:Feed}) {
       if(r.prefs.view==='hot'&&result.filters.personalBatch&&loadSession('stillfeed-session-feed')?.batch!==result.filters.personalBatch){
         const base=await api<Feed>('/api/feed?batch='+result.filters.personalBatch);
         if(request!==r.request)return;
-        const session:Session={preferences:{...defaults,view:'feed',scope:base.filters.scope,kind:base.filters.kind,q:base.filters.q},batch:base.batch,pages:1,position:null,seenBefore:base.seenBefore,revision:base.revision,at:Date.now()};
+        const session:Session={preferences:{...defaults,view:'feed',categories:base.filters.categories,kind:base.filters.kind,q:base.filters.q},batch:base.batch,pages:1,position:null,seenBefore:base.seenBefore,revision:base.revision,at:Date.now()};
         sessionStorage.setItem('stillfeed-session-feed',JSON.stringify(session));
       }
       if (!append) { unwatch(); r.pages = 0; }
@@ -643,7 +643,7 @@ export function App({initialFeed}: {initialFeed?:Feed}) {
   const viewed = Math.max(0, total - unseen);
   const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
   const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
-  const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
+  const filterText = [view !== 'saved' && !prefs.categories.length ? t('feed.filters.everything') : prefs.categories.length===1 ? t(prefs.categories[0]==='ai'?'settings.category.ai':'settings.category.data') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
   const counterButton = <button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>;

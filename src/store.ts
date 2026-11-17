@@ -1,3 +1,5 @@
+import {parseCategories, type Category} from './categories';
+import {hasDataSignal} from './relevance';
 import { Database } from 'bun:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, chmodSync, renameSync, writeFileSync } from 'node:fs';
@@ -10,7 +12,7 @@ export function refreshHours(every:number,nightPause:boolean){
   const hours:number[]=[];for(let h=nightPause?5:0;h<(nightPause?23:24);h+=every)hours.push(h);return hours;
 }
 export type RecordData = Record<string, unknown>;
-export type Filters = { scope: 'ai'|'all'; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number; personalBatch?:string; queueVersion?:2 };
+export type Filters = { categories: Category[]; kind: 'all'|'article'|'x'; q: string; hideSeen: boolean; hours: number; savedOnly?: boolean; savedTopic?: string; seenBefore?: number; revision?: number; personalOnly?:boolean; personalProfile?:string; personalRevision?:number; personalBatch?:string; queueVersion?:2 };
 export type Article = { id: string; url: string; title: string; source: string; host: string; kind: 'article'|'x'; publishedAt: number; ai: boolean; seen: boolean; saved: boolean; tweet: RecordData|null; personalReason?:string };
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,32);
 export function canonical(value: unknown): string {
@@ -64,6 +66,22 @@ export class Store {
       PRAGMA user_version=2;`);
     const columns=new Set((this.db.query('PRAGMA table_info(articles)').all() as {name:string}[]).map(c=>c.name));
     for(const name of ['content','summary','author','image_url','ai_reason'])if(!columns.has(name))this.db.exec(`ALTER TABLE articles ADD COLUMN ${name} TEXT`);
+    if(this.meta('feedCategoriesVersion')!=='1')this.db.transaction(()=>{
+      if(this.meta('feedCategoriesVersion')==='1')return;
+      if(!(this.db.query('PRAGMA table_info(model_decisions)').all() as {name:string}[]).some(column=>column.name==='categories'))this.db.exec('ALTER TABLE model_decisions ADD COLUMN categories TEXT');
+      const current=new Set((this.db.query('PRAGMA table_info(articles)').all() as {name:string}[]).map(c=>c.name));
+      for(const name of ['ai_topic','data_topic'])if(!current.has(name))this.db.exec(`ALTER TABLE articles ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0`);
+      const update=this.db.query('UPDATE articles SET ai_topic=?,data_topic=? WHERE id=?');
+      for(const row of this.db.query('SELECT id,ai,ai_reason,title,summary FROM articles').all() as RecordData[]){
+        const data=hasDataSignal(`${row.title} ${row.summary||''}`);
+        update.run(Number(Boolean(row.ai)&&row.ai_reason!=='data_signal'),Number(data),String(row.id));
+      }
+      for(const row of this.db.query('SELECT id,filters FROM batches').all() as {id:string;filters:string}[]){
+        const {scope,...filters}=JSON.parse(row.filters);
+        this.db.query('UPDATE batches SET filters=? WHERE id=?').run(JSON.stringify({...filters,categories:parseCategories(filters.categories,scope)}),row.id);
+      }
+      this.setMeta('feedCategoriesVersion','1');
+    }).immediate();
     if(this.meta('feedQueueVersion')!=='2')this.db.transaction(()=>{
       if(this.meta('feedQueueVersion')==='2')return;
       // v1 merged every historical snapshot, including retired automatic-seen views and Hot.
@@ -124,6 +142,9 @@ export class Store {
         this.db.query('INSERT INTO sources(id,name) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name').run(sourceId,source);
         const tweet=object(r.tweet),isX=/^https?:\/\/x\.com\/[^/]+\/status\//.test(url);
         this.db.query(`INSERT INTO articles(id,url,title,source,host,kind,sort_at,ai,tweet,created_revision,last_revision,content,summary,author,image_url,ai_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,source=excluded.source,ai=MAX(articles.ai,excluded.ai),tweet=COALESCE(excluded.tweet,articles.tweet),last_revision=excluded.last_revision,content=COALESCE(NULLIF(excluded.content,''),articles.content),summary=COALESCE(NULLIF(excluded.summary,''),articles.summary),author=COALESCE(NULLIF(excluded.author,''),articles.author),image_url=COALESCE(NULLIF(excluded.image_url,''),articles.image_url),ai_reason=excluded.ai_reason`).run(id,url,str(r.title,'Untitled update'),source,new URL(url).hostname,isX?'x':'article',date(r.published_at,now),Number(Boolean(r.ai_is_related)),Object.keys(tweet).length?JSON.stringify(tweet):null,revision,revision,str(r.content),str(r.summary),str(r.author),str(r.image_url),str(r.ai_relevance_reason));
+        const data=typeof r.data_is_related==='boolean'?r.data_is_related:hasDataSignal(`${str(r.title)} ${str(r.summary)}`);
+        const ai=typeof r.ai_topic==='boolean'?r.ai_topic:Boolean(r.ai_is_related)&&r.ai_relevance_reason!=='data_signal';
+        this.db.query('UPDATE articles SET ai_topic=MAX(ai_topic,?),data_topic=MAX(data_topic,?) WHERE id=?').run(Number(ai),Number(data),id);
         this.db.query('INSERT OR IGNORE INTO article_sources VALUES(?,?)').run(id,sourceId);
         if(typeof r.feed_id==='string'&&typeof r.guid==='string')this.db.query('INSERT INTO feed_entries VALUES(?,?,?) ON CONFLICT(feed_id,guid) DO UPDATE SET article_id=excluded.article_id').run(r.feed_id,r.guid,id);
       }
@@ -224,7 +245,7 @@ export class Store {
         if(filters.savedTopic==='ungrouped')conditions.push('NOT EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id)');
         else {conditions.push('EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id AND t.topic_id=?)');values.push(filters.savedTopic);}
       }
-      if(filters.scope==='ai'&&!filters.savedOnly)conditions.push('a.ai=1');
+      if(filters.categories.length&&!filters.savedOnly){conditions.push('('+filters.categories.map(category=>category==='ai'?'a.ai_topic=1':'a.data_topic=1').join(' OR ')+')');}
       if(filters.personalOnly&&!filters.savedOnly){
         conditions.push('EXISTS(SELECT 1 FROM batch_items i WHERE i.batch_id=? AND i.article_id=a.id)','EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=? AND p.score>=2)');values.push(filters.personalBatch!,filters.personalProfile!);
       }
@@ -252,7 +273,7 @@ export class Store {
     const hiddenCondition=frozenFilters.savedOnly?'0':'EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=b.article_id)';
     const unseen=(this.db.query(`SELECT COUNT(*) AS n FROM batch_items b WHERE b.batch_id=? AND NOT EXISTS(SELECT 1 FROM seen v WHERE v.article_id=b.article_id) AND NOT ${hiddenCondition}`).get(batch.id) as {n:number}).n;
     const dismissed=(this.db.query(`SELECT b.article_id AS id FROM batch_items b WHERE b.batch_id=? AND ${hiddenCondition}`).all(batch.id) as {id:string}[]).map(row=>row.id);
-    return {items,total:batch.total,unseen,dismissed,batch:batch.id,seenBefore:batch.created,revision:batch.revision,filters:JSON.parse(batch.filters),next:offset+items.length<batch.total?offset+items.length:null,generatedAt:this.meta('generatedAt')};
+    return {items,total:batch.total,unseen,dismissed,batch:batch.id,seenBefore:batch.created,revision:batch.revision,filters:frozenFilters,next:offset+items.length<batch.total?offset+items.length:null,generatedAt:this.meta('generatedAt')};
   }
   close(){this.db.close();}
 }
