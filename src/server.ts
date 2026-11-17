@@ -102,6 +102,8 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(path==='/api/x-accounts')return json(sources.accounts(store));
         // Status only, never secrets.
         if(path==='/api/config')return json({language:language(),ai:describe()??{provider:null,model:null},x:{configured:Boolean(process.env.SOCIALDATA_API_KEY)}});
+        const batchSeen=/^\/api\/feed\/([a-f0-9-]{36})\/seen$/.exec(path);
+        if(batchSeen)return json({ids:store.seenInBatch(batchSeen[1]!)});
         const chat=/^\/api\/chat\/([a-f0-9]{32})$/.exec(path);
         if(chat)return json(chats.view(chat[1]!));
         if(path==='/api/feed') {

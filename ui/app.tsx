@@ -94,6 +94,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState(prefs.q);
   const [counterOpen, setCounterOpen] = useState(false);
+  const [hidingViewed, setHidingViewed] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(() => scrollY > 300);
   const [hotOpen, setHotOpenState] = useState(() => sessionStorage.getItem('stillfeed-tab') === 'hot' && location.pathname === '/');
   const [hot, setHot] = useState<HotItem[]>([]);
@@ -103,7 +104,7 @@ export function App() {
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
-    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings,
+    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, hidingViewed: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
@@ -347,20 +348,32 @@ export function App() {
   }
 
   /** Explicitly dismiss only rows already seen, keeping the current snapshot and bookmarks. */
-  function hideViewed() {
-    if (!r.feed || r.prefs.view !== 'feed') return;
-    const batch = r.feed.batch, before = r.items, y = scrollY, ids = before.filter(a => a.seen || r.outbox[a.id] === true).map(a => a.id);
-    if (!ids.length) return;
-    const hidden = new Set(ids);
-    ids.forEach(id => r.collapsed.add(id));
-    flushSync(() => setItems(before.filter(a => !hidden.has(a.id)))); window.scrollTo(0, 0); save(); watch();
-    notify(t('feed.hiddenViewed', { n: ids.length }), { action: { label: t('toast.undo'), onAction: () => {
-      if (r.feed?.batch !== batch) return;
-      ids.forEach(id => r.collapsed.delete(id));
-      const current = new Map(r.items.map(a => [a.id, a])), previous = new Set(before.map(a => a.id));
-      flushSync(() => setItems([...before.filter(a => hidden.has(a.id) || current.has(a.id)).map(a => current.get(a.id) || a), ...r.items.filter(a => !previous.has(a.id))]));
-      window.scrollTo(0, y); save(); watch();
-    } } });
+  async function hideViewed() {
+    if (!r.feed || r.prefs.view !== 'feed' || r.hidingViewed) return;
+    const batch = r.feed.batch;
+    r.hidingViewed = true; setHidingViewed(true);
+    try {
+      await flush();
+      const result = await api<{ids: string[]}>(`/api/feed/${batch}/seen`);
+      if (r.feed?.batch !== batch || r.prefs.view !== 'feed') return;
+      const before = r.items, y = scrollY;
+      const localSeen = before.filter(a => a.seen || r.outbox[a.id] === true).map(a => a.id);
+      const ids = [...new Set([...result.ids, ...localSeen])].filter(id => !r.collapsed.has(id));
+      if (!ids.length) return;
+      const hidden = new Set(ids);
+      ids.forEach(id => r.collapsed.add(id));
+      flushSync(() => setItems(before.filter(a => !hidden.has(a.id))));
+      window.scrollTo(0, 0); save(); watch();
+      notify(t('feed.hiddenViewed', { n: ids.length }), { action: { label: t('toast.undo'), onAction: async () => {
+        if (r.feed?.batch !== batch) return;
+        ids.forEach(id => r.collapsed.delete(id));
+        const snapshot: Session = {preferences: {...r.prefs}, batch, pages: r.pages, position: null, seenBefore: r.feed.seenBefore, revision: r.feed.revision, collapsed: [...r.collapsed], dismissalVersion: 2};
+        await loadView(snapshot);
+        window.scrollTo(0, y); save(); watch();
+      } } });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t('error.load'));
+    } finally { r.hidingViewed = false; setHidingViewed(false); }
   }
   async function discuss() {
     const context: ChatContext | null = r.route ? {kind: 'article', id: r.route.id} : r.hotOpen ? hot.length ? {kind: 'hot', ids: hot.map(a => a.id)} : null : r.feed ? {kind: 'batch', id: r.feed.batch} : null;
@@ -619,7 +632,7 @@ export function App() {
 
   const view = prefs.view;
   const total = feed?.total ?? 0;
-  const viewed = items.filter(a => a.seen || r.outbox[a.id] === true).length;
+  const viewed = Math.max(0, total - unseen - r.collapsed.size);
   const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
   const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
   const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
@@ -642,7 +655,7 @@ export function App() {
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
-          {!hotOpen && view === 'feed' && total > 0 && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} onClick={() => setCounterOpen(true)}>{total-unseen}/{total}</button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
+          {!hotOpen && view === 'feed' && total > 0 && <Suspense fallback={<button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} onClick={() => setCounterOpen(true)}>{total-unseen}/{total}</button>}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense>}
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
@@ -674,7 +687,7 @@ export function App() {
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
         {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
-          {view === 'feed' && viewed > 0 && <button className="secondary-button" onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
+          {view === 'feed' && viewed > 0 && <button className="secondary-button" disabled={hidingViewed} onClick={() => void hideViewed()}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
           <p id="endNote" hidden={!feed || feed.next !== null}>{total ? t('feed.end') : t('feed.none')}</p>

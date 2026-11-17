@@ -47,3 +47,16 @@ test('marking a whole batch seen returns only the newly seen ids and is idempote
   expect(store.feed({...prefs,hideSeen:true}).total).toBe(0);
  }finally{store.close();}
 });
+
+test('seen IDs cover the entire batch including unloaded pages and preserve bookmarks',async()=>{
+ const {dir}=await fixture(),store=new Store(dir);
+ try {
+  load(store);const page=store.feed(prefs),visible=page.items.map(a=>a.id),offscreen=store.feed(prefs,page.batch,30).items[0]!.id;
+  store.mark([visible[0]!,offscreen],true);store.save(offscreen,true);
+  expect(page.items).toHaveLength(30);expect(store.seenInBatch(page.batch)).toContain(offscreen);
+  expect(store.seenInBatch(page.batch)).toHaveLength(2);
+  expect(store.feed(prefs,page.batch).total).toBe(75);
+  expect(store.feed({...prefs,savedOnly:true}).items.some(a=>a.id===offscreen)).toBe(true);
+  expect(()=>store.seenInBatch('missing')).toThrow('expired');
+ }finally{store.close()}
+});

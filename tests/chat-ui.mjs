@@ -40,12 +40,19 @@ try{
   await p.evaluate(()=>scrollTo(0,500));check(width+': counter has one stable position',await p.locator('.read-count').count()===1&&await p.locator('.read-count-corner').count()===0&&(await p.locator('#readCount').boundingBox()).y<60&&await p.locator('.feed-cleanup').count()===0);await p.evaluate(()=>scrollTo(0,0));
   const retained=await p.locator('#feed .feed-card.article').first().getAttribute('data-id');await p.goto(base+'/article/'+retained);await p.locator('#articleBack').click();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reading never dismisses its row',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
   await p.reload();await p.locator('#feed [data-id="'+retained+'"]').waitFor();check(width+': reload preserves read rows',await p.locator('#feed [data-id="'+retained+'"]').count()===1);
+  const activeBatch=await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')).batch);
+  const hiddenLater=sql('SELECT article_id FROM batch_items WHERE batch_id=? AND ordinal=60',[activeBatch])[0][0];
+  await post('/api/seen',{ids:[hiddenLater],seen:true});await p.reload();await p.locator('#feed .feed-card').first().waitFor();
   await p.locator('#readCount').click();
   await p.waitForFunction(()=>document.querySelector('#hideViewed')&&!document.querySelector('#hideViewed').disabled);
   const first=await p.locator('#feed .feed-card.seen').first().getAttribute('data-id');await post('/api/article/'+first+'/saved',{saved:true});
-  await p.locator('#hideViewed').click();check(width+': explicit hide removes seen cards',await p.locator('#feed .feed-card.seen').count()===0);
+  await p.locator('#hideViewed').click();await p.locator('.toast-title').filter({hasText:'Hidden'}).waitFor();check(width+': explicit hide removes seen cards',await p.locator('#feed .feed-card.seen').count()===0);
+  check(width+': hide includes unseen pages',await p.evaluate(id=>JSON.parse(sessionStorage.getItem('stillfeed-session')).collapsed.includes(id),hiddenLater));
+  while(await p.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')).pages)<3){const response=p.waitForResponse(r=>r.url().includes('/api/feed?')&&r.url().includes('offset='));await p.locator('#loadMore').evaluate(el=>el.click());await response;}
+  check(width+': hidden offscreen row does not reappear on pagination',await p.locator('#feed [data-id="'+hiddenLater+'"]').count()===0);
   check(width+': hiding does not unsave bookmark',sql('SELECT 1 FROM saved WHERE article_id=?',[first]).length===1);
   await p.getByRole('button',{name:'Undo',exact:true}).click();await p.locator('#feed [data-id="'+first+'"]').waitFor();
+  await p.locator('#feed [data-id="'+hiddenLater+'"]').waitFor();check(width+': Undo also restores newly loaded hidden rows',await p.locator('#feed [data-id="'+hiddenLater+'"]').count()===1);
   check(width+': Undo restores hidden row',await p.locator('#feed [data-id="'+first+'"]').count()===1);
   await p.locator('#feedDiscuss').click();await p.locator('#chatPanel').waitFor();await p.getByRole('textbox',{name:'Your question',exact:true}).waitFor();
   await p.waitForFunction(()=>!document.querySelector('#chatPanel textarea').disabled);

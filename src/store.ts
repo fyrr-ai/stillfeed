@@ -101,6 +101,11 @@ export class Store {
       return ids;
     })();
   }
+  seenInBatch(batchId: string): string[] {
+    if (!this.db.query('SELECT 1 FROM batches WHERE id=?').get(batchId)) throw new Error('View expired. Refresh to continue.');
+    const rows = this.db.query('SELECT i.article_id AS id FROM batch_items i JOIN seen s ON s.article_id=i.article_id WHERE i.batch_id=? ORDER BY i.ordinal').all(batchId) as {id: string}[];
+    return rows.map(row => row.id);
+  }
   mark(ids: string[], on: boolean) {
     this.db.transaction(()=> {for (const id of ids) {
       if(on)this.db.query('INSERT OR IGNORE INTO seen SELECT id,? FROM articles WHERE id=?').run(Date.now(),id);
