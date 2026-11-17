@@ -25,7 +25,8 @@ const chrome=process.env.CHROME||fallbackChrome;
 let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
 async function api(path:string,value?:unknown){const response=await fetch(base+path,value===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Stillfeed':'1'},body:JSON.stringify(value)});const data=await response.json();if(!response.ok)throw new Error(JSON.stringify(data));return data;}
 try{
-  for(let i=0;i<100;i++){try{if((await fetch(base+'/health')).ok)break;}catch{}await Bun.sleep(100);}
+  const ready=async()=>{try{return (await fetch(base+'/health')).ok;}catch{return false;}};
+  for(const deadline=Date.now()+180000;!await ready();await Bun.sleep(200))if(Date.now()>deadline)throw new Error('Documentation server did not start within 3 minutes');
   browser=await chromium.launch({executablePath:existsSync(chrome)?chrome:undefined,args:['--no-sandbox']});
   type Page=import('playwright-core').Page;
   async function app(width=390,height=780){
@@ -50,12 +51,12 @@ try{
     await shot(page,'phone-saved');copyFileSync(join(raw,'phone-saved.png'),join(out,'stillfeed-saved.png'));
     await page.keyboard.press('Escape');await page.goto(base+`/article/${reader}`);await page.locator('.ai-summary li').first().waitFor();
     await shot(page,'phone-reader');copyFileSync(join(raw,'phone-reader.png'),join(out,'stillfeed-reader.png'));
-    await page.setViewportSize({width:390,height:650});await page.locator('#detailDiscuss').click();await page.locator('.chat-assistant').first().waitFor();
+    await page.locator('#detailDiscuss').click();await page.locator('.chat-assistant').first().waitFor();
     await shot(page,'phone-discuss');copyFileSync(join(raw,'phone-discuss.png'),join(out,'stillfeed-discuss.png'));
     await context.close();
   }
   {
-    const {context,page}=await app(390,600);await page.goto(base);await page.locator('#feed .feed-card').first().waitFor();
+    const {context,page}=await app();await page.goto(base);await page.locator('#feed .feed-card').first().waitFor();
     const batch=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')!).batch);
     const feed=await api('/api/feed?batch='+batch);await api('/api/seen',{ids:feed.items.slice(0,3).map((a:{id:string})=>a.id),seen:true});
     await page.reload();await page.locator('#readCount').filter({hasText:'3/'}).waitFor();await page.locator('#readCount').click();await page.locator('#hideViewed').waitFor();

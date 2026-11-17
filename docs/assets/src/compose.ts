@@ -8,16 +8,18 @@ export function compositions({raw,fonts}:{raw:string;fonts:string}):Composition[
   @font-face{font-family:Geist;src:url('file://${join(fonts,'geist-latin-wght-normal.woff2')}');font-weight:100 900}
   *{box-sizing:border-box;margin:0}html,body{width:100%;height:100%;overflow:hidden}
   body{font-family:Geist,Arial,sans-serif;background:#08090a url('file://${backdrop}') center/cover;color:#f5f4f7}
-  .phone{position:relative;width:414px;padding:12px;border-radius:61px;background:linear-gradient(120deg,#929399 0,#343538 6%,#151618 45%,#56575b 78%,#18191b);box-shadow:0 0 0 1px #96979c,0 0 0 3px #121315,4px 8px 18px #0009,0 35px 70px #000b}
-  .phone::before{content:'';position:absolute;inset:4px;border:1px solid #ffffff20;border-radius:57px;pointer-events:none}
-  .buttons{position:absolute;left:-5px;top:155px;width:4px;height:48px;background:linear-gradient(90deg,#292a2d,#8c8c92,#26272a);border-radius:2px;box-shadow:0 65px 0 #5d5e62}
-  .buttons::after{content:'';position:absolute;left:418px;top:54px;width:4px;height:78px;border-radius:2px;background:linear-gradient(90deg,#3d3e42,#818287,#17181a)}
-  .screen{position:relative;width:390px;border-radius:49px;overflow:hidden;background:#000}.screen>img{display:block;width:390px}
-  .status{height:48px;position:relative;display:flex;align-items:center;justify-content:space-between;padding:0 27px 0 35px;font-size:15px;line-height:1;color:#f7f7f7}
-  .status b{font-weight:600}.island{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:112px;height:29px;border-radius:20px;background:#050506;box-shadow:inset 0 0 0 1px #ffffff06}
-  .radios{display:flex;align-items:center;gap:6px}.home{height:23px;position:relative;background:#000}.home::after{content:'';position:absolute;left:50%;bottom:7px;transform:translateX(-50%);width:128px;height:4px;border-radius:8px;background:#f4f4f4}
+  .phone{position:relative;width:414px;padding:3px;border-radius:66px;background:linear-gradient(140deg,#c9cacf 0,#6c6d72 7%,#2c2d31 22%,#1a1b1e 50%,#3a3b40 78%,#a9aaaf 94%,#5b5c61);box-shadow:inset 0 0 0 1px #ffffff40,0 0 0 1px #0008,0 30px 80px #000c,0 8px 20px #0008}
+  .phone::before{content:'';position:absolute;inset:1px;border-radius:65px;box-shadow:inset 0 1px 1px #ffffff55,inset 0 -1px 1px #00000080;pointer-events:none}
+  .buttons{position:absolute;left:-3px;top:170px;width:3px;height:30px;border-radius:2px 0 0 2px;background:linear-gradient(90deg,#4a4b50,#9c9da2)}
+  .buttons::before{content:'';position:absolute;left:0;top:52px;width:3px;height:58px;border-radius:2px 0 0 2px;background:inherit;box-shadow:0 70px 0 #7d7e83}
+  .buttons::after{content:'';position:absolute;left:417px;top:72px;width:3px;height:92px;border-radius:0 2px 2px 0;background:linear-gradient(90deg,#9c9da2,#4a4b50)}
+  .screen{position:relative;width:408px;border:9px solid #000;border-radius:63px;overflow:hidden;background:#000;box-shadow:0 0 0 1px #2a2b2e}.screen-inner>img{display:block;width:390px}
+  .screen-inner{position:relative;border-radius:54px;overflow:hidden;background:#000}
+  .status{height:54px;position:relative;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 44px;font-size:16px;line-height:1;color:#f7f7f7}
+  .status b{font-weight:600;letter-spacing:-.2px}.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000}
+  .radios{display:flex;align-items:center;gap:6px}.home{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);width:136px;height:5px;border-radius:5px;background:#f4f4f4;opacity:.92}
   `;
-  const phone=(shot:string,cls='',scale=1)=>`<div class="device ${cls}"><div class="phone" style="zoom:${scale}"><i class="buttons"></i><div class="screen">${status}<img src="file://${join(raw,shot+'.png')}" alt="Stillfeed screen"><div class="home"></div></div></div></div>`;
+  const phone=(shot:string,cls='',scale=1)=>`<div class="device ${cls}"><div class="phone" style="zoom:${scale}"><i class="buttons"></i><div class="screen"><div class="screen-inner">${status}<img src="file://${join(raw,shot+'.png')}" alt="Stillfeed screen"><i class="home"></i></div></div></div></div>`;
   const shell=(body:string,css:string)=>`<!doctype html><html><head><meta charset="utf-8"><style>${foundation}${css}</style></head><body>${body}</body></html>`;
   const bento=()=>{
     const crop=(shot:string,cls:string,index:string,title:string,text:string)=>`<section class="cell ${cls}"><span>${index}</span><b>${title}</b><p>${text}</p><div class="crop"><div><img src="file://${join(raw,shot+'.png')}" alt="Stillfeed ${title} screen"></div></div></section>`;
@@ -72,11 +74,13 @@ export function compositions({raw,fonts}:{raw:string;fonts:string}):Composition[
   `);
   const frame=(shot:string)=>shell(phone(shot),`.device{position:absolute;left:31px;top:31px}`);
   const desktop=()=>shell(`<div class="browser"><div class="bar"><i></i><i></i><i></i><span>Stillfeed · Sources</span></div><img src="file://${join(raw,'sources.png')}" alt="Stillfeed Sources"></div>`,`.browser{position:absolute;left:31px;top:31px;width:1042px;background:#18191c;border:1px solid #ffffff55;border-radius:15px;overflow:hidden;box-shadow:0 25px 60px #0009}.bar{height:32px;display:flex;align-items:center;gap:6px;padding:0 12px}.bar i{width:7px;height:7px;border-radius:50%;background:#74757c}.bar span{margin-left:18px;color:#a3a4ae;font-size:11px}.browser img{display:block;width:1040px}`);
+  // Every phone screen is 390×780, so all framed phones share one size.
+  const frameHeight=31+3+9+54+780+9+3+31;
   return [
     {name:'stillfeed-banner',width:1500,height:1000,html:bento()},
     {name:'stillfeed-social',width:1200,height:630,html:social()},
-    ...['feed','hot','reader','saved','discuss'].map(name=>({name:'stillfeed-'+name,width:476,height:(name==='discuss'?650:780)+159,html:frame('phone-'+name)})),
-    ...['hide-menu','hide-after','hide-undo'].map(name=>({name:'frame-'+name,width:476,height:759,html:frame(name),temporary:true})),
+    ...['feed','hot','reader','saved','discuss'].map(name=>({name:'stillfeed-'+name,width:476,height:frameHeight,html:frame('phone-'+name)})),
+    ...['hide-menu','hide-after','hide-undo'].map(name=>({name:'frame-'+name,width:476,height:frameHeight,html:frame(name),temporary:true})),
     {name:'stillfeed-sources',width:1104,height:816,html:desktop()},
   ];
 }
