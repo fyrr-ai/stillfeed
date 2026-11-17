@@ -101,11 +101,13 @@ export function Detail({ route, busy, notice, actions, back, next, onNext, langu
       void settle().then(() => ref.current?.classList.remove('dragging'));
     }}>
     <header className="article-toolbar">
-      <button id="articleBack" className="icon-button" aria-label={t('reader.back')} title={t('reader.back')} onClick={back}><Icon name="back" /></button>
+      <button id="articleBack" className="icon-button" aria-label={t('reader.back')} title={t('reader.back')} onClick={back}><Icon name="back" size={18} /></button>
       <b id="detailLabel">{route?.kind === 'post' ? t('reader.thread') : t('reader.article')}</b>
-      <button id="detailDiscuss" className="icon-button" aria-label={t('chat.title')} title={t('chat.title')} disabled={!article} onClick={discuss}><Icon name="reply" /></button>
-      <button id="detailSave" className="icon-button bookmark" aria-label={article?.saved ? t('card.unsave') : t('card.save')} aria-pressed={Boolean(article?.saved)} disabled={busy} onClick={() => article && actions.save(article, !article.saved)}><Icon name="bookmark" /></button>
-      <a id="articleOriginal" className="original toolbar-link" href={article?.url} target="_blank" rel="noopener noreferrer">{t('reader.original')} <Icon name="external" size={14} /></a>
+      <div className="top-actions">
+        <button id="detailDiscuss" className="icon-button" aria-label={t('chat.title')} title={t('chat.title')} disabled={!article} onClick={discuss}><Icon name="reply" size={18} /></button>
+        <button id="detailSave" className="icon-button bookmark" aria-label={article?.saved ? t('card.unsave') : t('card.save')} aria-pressed={Boolean(article?.saved)} disabled={busy} onClick={() => article && actions.save(article, !article.saved)}><Icon name="bookmark" size={18} /></button>
+        <a id="articleOriginal" className="icon-button" aria-label={t('reader.original')} title={t('reader.original')} href={article?.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} /></a>
+      </div>
     </header>
     <main id="readingContent" className="reading-content">
       {notice && <p className="notice error" role="alert">{notice}</p>}
