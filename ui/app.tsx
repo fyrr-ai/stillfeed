@@ -1,3 +1,4 @@
+import {feedURL} from './feed-state';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { loadChrome, toast } from './notify';
@@ -186,19 +187,8 @@ export function App() {
     setFailed(false); setLoading(true);
     if (!append) setMessage('');
     try {
-      const params = new URLSearchParams();
-      if(limit>PAGE_SIZE)params.set('limit',String(limit));
-      if (restore) { params.set('batch', restore.batch); params.set('offset', String(restore.offset)); }
-      else if (append && r.feed) { params.set('batch', r.feed.batch); params.set('offset', String(r.feed.next || 0)); }
-      else {
-        const p = r.prefs;
-        params.set('saved', p.view === 'saved' ? '1' : '0'); params.set('personal', p.view === 'hot' ? '1' : '0'); params.set('scope', p.scope); params.set('kind', p.kind); params.set('q', p.q); params.set('hideSeen', '0');
-        if (p.view === 'hot') { const base=loadSession('stillfeed-session-feed'); if(base)params.set('from',base.batch); }
-        if (p.view === 'saved' && p.savedTopic) params.set('topic', p.savedTopic);
-        // The server applies the configured feed window itself, so the first page need not wait for /api/settings.
-        if (r.feed && p.view === 'feed') { params.set('seenBefore', String(r.feed.seenBefore)); params.set('revision', String(r.feed.revision)); }
-      }
-      const result = await api<Feed>('/api/feed?' + params);
+      const page = restore ?? (append && r.feed ? {batch:r.feed.batch,offset:r.feed.next||0} : undefined);
+      const result = await api<Feed>(feedURL(r.prefs,page,limit,r.feed));
       if (request !== r.request) return;
       if (!Array.isArray(result.items) || !Number.isInteger(result.total) || typeof result.batch !== 'string') throw new Error('Invalid feed response');
       if(r.prefs.view==='hot'&&result.filters.personalBatch&&loadSession('stillfeed-session-feed')?.batch!==result.filters.personalBatch){

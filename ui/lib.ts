@@ -1,3 +1,4 @@
+import { takeInitialResponse } from './feed-state';
 import type { Personal } from '../src/personal';
 import type { Article, Filters } from '../src/store';
 import { t } from './i18n';
@@ -20,11 +21,11 @@ export type PersonalStatus = ReturnType<Personal['status']>;
 export type Reading = { title: string; author: string; html: string; url: string };
 
 // Visibility records seen state; dismissing rows is always an explicit action.
-export const defaults: Preferences = { view: 'feed', scope: 'ai', kind: 'all', q: '', hideSeen: true };
-export const PAGE_SIZE = 30;
+export { defaults, PAGE_SIZE, loadPreferences, storePreferences, loadSession } from './feed-state';
 
 export async function api<T>(path: string, value?: unknown): Promise<T> {
-  const response = await fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stillfeed': '1' }, body: JSON.stringify(value) } : {}) });
+  const initial = value === undefined ? takeInitialResponse(path) : undefined;
+  const response = await (initial ?? fetch(path, { cache: 'no-store', ...(value !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stillfeed': '1' }, body: JSON.stringify(value) } : {}) }));
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Request failed');
   return data as T;
@@ -49,27 +50,6 @@ export const count = (n: unknown) => new Intl.NumberFormat('en', { notation: 'co
 /** Feed titles arrive HTML-escaped; decode entities to plain text, never to markup. */
 export function headline(value: string) { const text = document.createElement('textarea'); text.innerHTML = value.replace(/</g, '&lt;').replace(/>/g, '&gt;'); return text.value; }
 
-export function loadPreferences(): Preferences {
-  try {
-    const saved = JSON.parse(localStorage.getItem('stillfeed-preferences') || 'null');
-    if (saved) return { view: saved.view === 'saved' ? 'saved' : saved.view === 'hot' ? 'hot' : 'feed', scope: saved.scope === 'all' ? 'all' : 'ai', kind: ['article', 'x'].includes(saved.kind) ? saved.kind : 'all', q: typeof saved.q === 'string' ? saved.q.slice(0, 300) : '', hideSeen: saved.autoSeen === true ? saved.hideSeen !== false : true,
-      ...(typeof saved.savedTopic === 'string' && /^([a-f0-9]{32}|ungrouped)$/.test(saved.savedTopic) ? { savedTopic: saved.savedTopic } : {}) };
-  } catch {}
-  return { ...defaults };
-}
-export function storePreferences(preferences: Preferences) { localStorage.setItem('stillfeed-preferences', JSON.stringify({ ...preferences, autoSeen: true })); }
-export function loadSession(key: string, preferences?: Preferences, maxAge = Infinity): Session | null {
-  try {
-    const session = JSON.parse(sessionStorage.getItem(key) || 'null') as (Session & {dismissalVersion?:number;collapsed?:unknown}) | null;
-    if (!session || !session.preferences || typeof session.batch !== 'string' || !Number.isInteger(session.pages) || session.pages < 1) return null;
-    session.preferences.view ??= 'feed';
-    if (preferences && JSON.stringify(session.preferences) !== JSON.stringify(preferences)) return null;
-    if (Date.now() - (session.at ?? 0) > maxAge) return null;
-    // Preserve explicit hides made by the previous UI; the next save writes only the batch ID.
-    if(session.dismissalVersion===2&&Array.isArray(session.collapsed))session.legacyDismissals=session.collapsed.filter((id:unknown):id is string=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id));
-    return session;
-  } catch { return null; }
-}
 export function loadOutbox(): Record<string, boolean> {
   try {
     const saved = JSON.parse(localStorage.getItem('stillfeed-outbox') || '{}');

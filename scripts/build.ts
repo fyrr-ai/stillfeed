@@ -26,7 +26,11 @@ const text = await entry.text();
 // Static imports look like `from"./chunk-x.js"` or `import"./chunk-x.js"`; lazy ones are `import("./chunk-x.js")`.
 const eager = result.outputs.filter(o => o.kind === 'chunk' && new RegExp(`(from|import)\\s*["']\\./${o.path.split('/').pop()!.replace('.', '\\.')}["']`).test(text));
 const css = (await Bun.file(join(root, 'assets/styles.css')).text()).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '\n').trim();
+const early = await Bun.build({entrypoints:[join(root,'ui/early.ts')],target:'browser',minify:true});
+if(!early.success)throw new Error('Could not build the initial feed request');
+const earlyScript = (await early.outputs[0]!.text()).replace(/<\/script/gi,'<\\/script');
 const head = [
+  `<script>(()=>{${earlyScript}})();</script>`,
   `<link rel="preload" href="/assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>`,
   ...eager.map(o => `<link rel="modulepreload" href="${url(o.path)}">`),
   `<style>${css}</style>`,

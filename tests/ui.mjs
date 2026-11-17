@@ -59,7 +59,10 @@ try{
   await ctx.route(u=>u.hostname!=='127.0.0.1',r=>r.fulfill({body:'<html>Original page</html>'}));
   await ctx.route('**/api/image/**',r=>r.fulfill({status:404,body:''}));
   const p=await ctx.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
+  let initialFeedRequests=0;p.on('request',request=>{if(request.url().includes('/api/feed?'))initialFeedRequests++;});
   await p.goto(base);await p.waitForSelector('.feed-card');
+  const startup=await p.evaluate(()=>{const resources=performance.getEntriesByType('resource');return {feed:resources.find(r=>r.name.includes('/api/feed?'))?.startTime,script:resources.find(r=>/\/assets\/build\/main-/.test(r.name))?.responseEnd};});
+  check(`${width}: the initial feed downloads alongside the application and is reused`,initialFeedRequests===1&&startup.feed<startup.script,JSON.stringify(startup));
   const touch=width===390?await ctx.newCDPSession(p):null;
   const swipe=async(x,y,dx,dy,cancel=false)=>{await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});for(let step=1;step<=10;step++){await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx*step/10,y:y+dy*step/10,id:1}]});await sleep(20);}await touch.send('Input.dispatchTouchEvent',{type:cancel?'touchCancel':'touchEnd',touchPoints:[]});};
   const isSaved=id=>p.evaluate(id=>document.querySelector(`#feed [data-id="${id}"] .bookmark`)?.getAttribute('aria-pressed')==='true',id);
