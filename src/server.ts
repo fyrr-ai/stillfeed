@@ -7,6 +7,7 @@ import {collect,seed,refreshHot,refreshSuggestions} from './collect';
 import {Suggestions} from './suggest';
 import {Hot} from './hot';
 import {SavedTopics} from './saved-topics';
+import {Chats,chatContext} from './chat';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { app, config } from './config';
@@ -31,6 +32,7 @@ const preparation=new Preparation(store);
 const hot=new Hot(store);
 const suggestions=new Suggestions(store);
 const savedTopics=new SavedTopics(store);
+const chats=new Chats(store);
 savedTopics.enqueue();
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const integer=(value:string|null,fallback:number,min:number,max:number)=>{
@@ -100,6 +102,8 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
         if(path==='/api/x-accounts')return json(sources.accounts(store));
         // Status only, never secrets.
         if(path==='/api/config')return json({language:language(),ai:describe()??{provider:null,model:null},x:{configured:Boolean(process.env.SOCIALDATA_API_KEY)}});
+        const chat=/^\/api\/chat\/([a-f0-9]{32})$/.exec(path);
+        if(chat)return json(chats.view(chat[1]!));
         if(path==='/api/feed') {
           const p=url.searchParams,scope=p.get('scope')||'ai',kind=p.get('kind')||'all';
           if(!['ai','all'].includes(scope)||!['all','article','x'].includes(kind))throw new Error('Unknown feed filter');
@@ -123,6 +127,15 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
       }
       if(request.method==='POST') {
         const value=await body(request);
+        if(path==='/api/chat')return json(chats.open(chatContext(value.context)));
+        const chat=/^\/api\/chat\/([a-f0-9]{32})\/(messages|cancel|clear|retry)$/.exec(path);
+        if(chat){
+          if(chat[2]==='cancel')return json(chats.cancel(chat[1]!));
+          if(chat[2]==='clear')return json(chats.clear(chat[1]!));
+          if(chat[2]==='retry')return json(chats.retry(chat[1]!));
+          if(typeof value.id!=='string'||typeof value.text!=='string')throw new Error('Invalid question');
+          return json(chats.send(chat[1]!,value.id,value.text));
+        }
         const summary=/^\/api\/article\/([a-f0-9]{32})\/summary$/.exec(path);
         if(summary)return articleSummary(summary[1]!,value.retry===true);
         const save=/^\/api\/article\/([a-f0-9]{32})\/saved$/.exec(path);
@@ -180,15 +193,21 @@ const server=Bun.serve({hostname:option('--hostname',config.hostname),port:integ
   }});
 console.log(`Stillfeed ready on http://${server.hostname}:${server.port}`);
 // The reader worker prepares articles and summaries in the background; it is restarted if it stops.
-let worker:Subprocess|null=null,stopping=false;
+let worker:Subprocess|null=null,chatWorker:Subprocess|null=null,stopping=false;
+function startChatWorker(){
+  if(process.env.STILLFEED_NO_WORKER==='1'||stopping)return;
+  chatWorker=Bun.spawn([process.execPath,join(app,'src/chat_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
+  void chatWorker.exited.then(()=>{chatWorker=null;if(!stopping)setTimeout(startChatWorker,5000);});
+}
 function startWorker(){
   if(process.env.STILLFEED_NO_WORKER==='1'||stopping)return;
   worker=Bun.spawn([process.execPath,join(app,'src/reader_worker.ts'),'--state-dir',directory],{stdout:'inherit',stderr:'inherit',env:process.env});
   void worker.exited.then(()=>{worker=null;if(!stopping)setTimeout(startWorker,5000);});
 }
 startWorker();
+startChatWorker();
 schedule();
 // A refresh missed while Stillfeed was not running (the last one is older than the interval) happens now.
 if(process.env.STILLFEED_DISABLE_SCHEDULE!=='1'&&Date.now()-Date.parse(store.meta('generatedAt')||'0')>store.settings().refreshEvery*3600000)startCollection();
-function stop(){stopping=true;clearTimeout(timer);worker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
+function stop(){stopping=true;clearTimeout(timer);worker?.kill();chatWorker?.kill();collecting?.kill();server.stop(true);store.close();process.exit(0);}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

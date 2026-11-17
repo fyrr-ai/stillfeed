@@ -1,6 +1,8 @@
 {
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@assistant-ui/react": "^0.15.36",
+    "@assistant-ui/react-markdown": "^0.14.26",
     "@mozilla/readability": "^0.6.0",
     "@ui-sdk/core": "0.1.0-beta.3",
     "@ui-sdk/react": "0.1.0-beta.3",
@@ -24,7 +26,8 @@
     "test": "bun test src",
     "test:ui": "node tests/ui.mjs",
     "test:perf": "bun tests/perf.ts",
-    "docs:shots": "bun docs/assets/src/shots.ts"
+    "docs:shots": "bun docs/assets/src/shots.ts",
+    "test:chat-ui": "node tests/chat-ui.mjs"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

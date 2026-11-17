@@ -481,8 +481,40 @@ body { background: var(--canvas); }
 @media (prefers-reduced-motion: reduce) {
 *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 .preview-loading, .skeleton > div { background: var(--subtle-bg); }
-}</style>
-  <script type="module" src="/assets/build/main-vyd1fjfh.js"></script>
+}
+.discuss-button { gap: 6px; min-height: var(--tap); }
+.feed-cleanup { display: flex; justify-content: flex-end; min-height: 44px; border-bottom: 1px solid var(--border-subtle); }
+.feed-cleanup .ghost-button { color: var(--text-low); }
+.chat-panel { width: min(480px, 100vw); height: 100dvh; max-height: 100dvh; display: flex; flex-direction: column; background: var(--app-bg); color: var(--text-high); border-left: 1px solid var(--border); padding: max(12px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom)); }
+.chat-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-header h2 { font-size: var(--text-heading); font-weight: 500; }
+.chat-context { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-low); font-size: var(--text-caption); }
+.chat-context span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.chat-thread { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.chat-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 20px 0; }
+.chat-welcome { padding: 28px 0; }
+.chat-welcome h2 { font-size: 1.125rem; font-weight: 500; margin-bottom: 10px; }
+.chat-welcome p, .chat-model, .chat-pending { color: var(--text-low); }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.chat-suggestions button { white-space: normal; text-align: left; }
+.chat-message { font-size: var(--text-body); line-height: 1.6; overflow-wrap: anywhere; margin-bottom: 24px; }
+.chat-user { background: var(--subtle-bg); border-radius: 12px; padding: 12px 14px; margin-left: 28px; white-space: pre-wrap; }
+.chat-assistant p, .chat-assistant ul, .chat-assistant ol, .chat-assistant pre { margin: 0 0 12px; }
+.chat-assistant a { color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+.chat-assistant ul, .chat-assistant ol { padding-left: 22px; }
+.chat-assistant h1, .chat-assistant h2, .chat-assistant h3 { font-size: var(--text-heading); margin: 16px 0 8px; }
+.chat-assistant pre { max-width: 100%; overflow-x: auto; padding: 12px; background: var(--subtle-bg); }
+.chat-assistant table { display: block; overflow-x: auto; max-width: 100%; }
+.chat-composer { display: flex; align-items: flex-end; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+.chat-composer textarea { flex: 1; width: 100%; min-width: 0; max-height: 160px; border: 0; resize: none; background: none; color: inherit; font: inherit; font-size: 16px; padding: 10px 4px; }
+.chat-composer button { background: var(--text-high); color: var(--canvas); }
+.chat-composer button:disabled { opacity: .35; }
+.chat-pending { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); }
+.chat-error { color: var(--danger); font-size: var(--text-label); }
+.chat-error button { margin-top: 8px; }
+.chat-model { font-size: var(--text-mono); min-height: 18px; }
+@media (max-width: 600px) { .chat-panel { width: 100vw; border: 0; padding-inline: 16px; } .discuss-button span { display: none; } }</style>
+  <script type="module" src="/assets/build/main-k38hgfhy.js"></script>
 </head>
 <body>
 <div id="root"></div>

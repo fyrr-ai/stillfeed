@@ -26,6 +26,21 @@ server-side fallback: a request the model declines is retried on a fallback mode
 Models never run inside a web request. The collection and a background reader call them, and the app only
 reads their cached results.
 
+## Discuss what you read
+
+**Discuss** in the feed header opens a chat about the current snapshot (including Hot or the filtered Saved
+view). In an article, the speech bubble opens a separate conversation about that article. Closing the panel
+keeps the history; **Clear conversation** starts over. Chat uses the same configured AI provider and model
+as summaries, including the Codex CLI, with responses in `STILLFEED_LANGUAGE`.
+
+A separate background chat worker handles questions without waiting behind summary preparation. Article
+chat uses its readable text; feed chat uses the snapshot's title catalogue and relevant cached excerpts or
+summaries, not an unlimited full-text search. Large catalogues are limited to 300 relevant titles and eight
+excerpts per answer. Answers link back to articles. Stop cancels the pending answer; failures can be retried.
+
+**Hide seen · count** above the feed and at its end removes only rows already seen from the current snapshot,
+with **Undo**. It leaves bookmarks in Saved. Marking the entire batch seen remains a separate action in options.
+
 ## Summary language
 
 ![The reader on a phone and on desktop: article text with a three-point AI summary.](assets/stillfeed-reader.png)

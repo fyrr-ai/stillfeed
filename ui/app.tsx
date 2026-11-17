@@ -7,6 +7,7 @@ import { EmptyState, SetupPanel, type EmptyKind, type SetupStep } from './empty'
 import { Icon } from './icons';
 import { t } from './i18n';
 import type { SidebarStatus } from './sidebar';
+import type { ChatContext } from '../src/chat';
 import { summarize, type SourcesFocus } from './source-rows';
 // The reader (with motion), the settings and the sources page load on first use; the feed needs none of them.
 const loadDetail = () => import('./detail'), loadSidebar = () => import('./sidebar'), loadSources = () => import('./sources');
@@ -14,6 +15,8 @@ const Detail = lazy(() => loadDetail().then(m => ({ default: m.Detail })));
 const Sidebar = lazy(() => loadSidebar().then(m => ({ default: m.Sidebar })));
 const SourcesPage = lazy(() => loadSources().then(m => ({ default: m.SourcesPage })));
 const SavedTopicsPanel = lazy(() => import('./saved-topics').then(m => ({ default: m.SavedTopicsPanel })));
+const loadChat = () => import('./chat');
+const ChatPanel = lazy(() => loadChat().then(m => ({ default: m.ChatPanel })));
 // A second after the feed is on screen, when the browser is idle, fetch them anyway, so the first tap never
 // waits; earlier, they would compete with the feed itself for a slow phone's bandwidth.
 const idle = (work: () => void) => 'requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 4000 }) : setTimeout(work, 1500);
@@ -77,6 +80,8 @@ export function App() {
   const [readerUsed, setReaderUsed] = useState(() => route !== null);
   if (route && !readerUsed) setReaderUsed(true);
   const [optionsOpen, setOptionsOpenState] = useState(false);
+  const [chat, setChat] = useState<{context: ChatContext; returnFocus: string} | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   /** A toast mounts the toast region first if its module has not arrived yet. */
   const notify: typeof toast = (text, options) => { setChromeReady(true); toast(text, options); };
   // Until the drawer's code is here, the menu is a plain button that loads it.
@@ -97,7 +102,7 @@ export function App() {
 
   // Async flows (pagination, restore, polling) read the latest values through these refs.
   const r = useRef({
-    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, settings, pendingUpdates: false,
+    prefs, items, feed, loading, failedNewView, route, sourcesOpen, sourcesChanged: false, optionsOpen, chatOpen: false, settings, pendingUpdates: false,
     outbox: loadOutbox(), pages: 0, request: 0, restoring: false, sending: false, refreshRequested: false,
     returnTo: (route || sourcesOpen ? { y: history.state?.feedY || 0, anchor: null } : null) as { y: number; anchor: HTMLElement | null } | null,
     timers: new Map<Element, ReturnType<typeof setTimeout>>(), focusSearch: false, focusAI: false, confirmOpen: false, optionsScroll: 0, hotOpen, feedScroll: 0,
@@ -126,7 +131,7 @@ export function App() {
   };
 
   // Seen means "was on screen for a second", never while options or the detail cover the feed.
-  const unobscured = () => !document.hidden && !r.optionsOpen && !r.confirmOpen && !r.hotOpen && !covered();
+  const unobscured = () => !document.hidden && !r.optionsOpen && !r.chatOpen && !r.confirmOpen && !r.hotOpen && !covered();
   const observer = useMemo(() => new IntersectionObserver(entries => {
     for (const entry of entries) {
       const node = entry.target as HTMLElement, id = node.dataset.id!;
@@ -194,7 +199,7 @@ export function App() {
       // Commit synchronously: restoring a position measures the rows right after this call.
       if (!append && !restore) r.collapsed = new Set();
       // Seen marks still queued on this device count too, so a fresh snapshot never shows them.
-      const visible = r.prefs.hideSeen && r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id) && !(!restore && !append && r.outbox[a.id] === true)) : result.items;
+      const visible = r.prefs.view === 'feed' ? result.items.filter(a => !r.collapsed.has(a.id) && !(r.prefs.hideSeen && !restore && !append && r.outbox[a.id] === true)) : result.items;
       flushSync(() => { setFeed(result); setUnseen(result.unseen); setItems(append ? [...r.items, ...visible] : visible); setLoading(false); setBooting(false); });
       r.pages++;
       watch(); save();
@@ -339,7 +344,34 @@ export function App() {
     } finally { setBusy(set => { const next = new Set(set); next.delete(article.id); return next; }); }
   }
 
-  /** Marks the whole current view seen on the server (its batch), with Undo for exactly the rows that changed. */
+  /** Explicitly dismiss only rows already seen, keeping the current snapshot and bookmarks. */
+  function hideViewed() {
+    if (!r.feed || r.prefs.view !== 'feed') return;
+    const batch = r.feed.batch, before = r.items, y = scrollY, ids = before.filter(a => a.seen || r.outbox[a.id] === true).map(a => a.id);
+    if (!ids.length) return;
+    const hidden = new Set(ids);
+    ids.forEach(id => r.collapsed.add(id));
+    flushSync(() => setItems(before.filter(a => !hidden.has(a.id)))); window.scrollTo(0, 0); save(); watch();
+    notify(t('feed.hiddenViewed', { n: ids.length }), { action: { label: t('toast.undo'), onAction: () => {
+      if (r.feed?.batch !== batch) return;
+      ids.forEach(id => r.collapsed.delete(id));
+      const current = new Map(r.items.map(a => [a.id, a])), previous = new Set(before.map(a => a.id));
+      flushSync(() => setItems([...before.filter(a => hidden.has(a.id) || current.has(a.id)).map(a => current.get(a.id) || a), ...r.items.filter(a => !previous.has(a.id))]));
+      window.scrollTo(0, y); save(); watch();
+    } } });
+  }
+  async function discuss() {
+    const context: ChatContext | null = r.route ? {kind: 'article', id: r.route.id} : r.hotOpen ? hot.length ? {kind: 'hot', ids: hot.map(a => a.id)} : null : r.feed ? {kind: 'batch', id: r.feed.batch} : null;
+    if (!context) return;
+    try {
+      await loadChat();
+      r.optionsScroll = scrollY; r.chatOpen = true; unwatch();
+      setChat({context, returnFocus: r.route ? 'detailDiscuss' : 'feedDiscuss'});
+      requestAnimationFrame(() => setChatOpen(true));
+    } catch (e) { notify(e instanceof Error ? e.message : t('chat.failed')); }
+  }
+  function closeChat() { keepReadingPosition(true); setChatOpen(false); }
+  /** Marking the entire batch seen remains a separate, confirmed action in settings. */
   async function markAllSeen() {
     if (!r.feed) return;
     try {
@@ -465,7 +497,7 @@ export function App() {
     };
     const onPageHide = () => l().save();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' || (event.target as HTMLElement).closest('input,textarea,button,[role=switch],[role=combobox]') || r.optionsOpen || covered()) return;
+      if (event.key === 'Escape' || (event.target as HTMLElement).closest('input,textarea,button,[role=switch],[role=combobox]') || r.optionsOpen || r.chatOpen || covered()) return;
       if (event.key === '/') { event.preventDefault(); openSearch(); }
       if (event.key === 'r') void l().refresh();
     };
@@ -516,12 +548,12 @@ export function App() {
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0]!;
       reset();
-      if (event.touches.length !== 1 || covered() || r.optionsOpen || r.confirmOpen || r.loading || r.restoring || !gestureAllowed(event.target, touch.clientX)) return;
+      if (event.touches.length !== 1 || covered() || r.optionsOpen || r.chatOpen || r.confirmOpen || r.loading || r.restoring || !gestureAllowed(event.target, touch.clientX)) return;
       gesture = { x: touch.clientX, y: touch.clientY, id: touch.identifier, mode: 'pending', canPull: scrollY <= 0 && unobscured() && !refreshingRef.current, dx: 0, dy: 0 };
     };
     const onMove = (event: TouchEvent) => {
       if (!gesture) return;
-      if (event.touches.length !== 1 || event.touches[0]!.identifier !== gesture.id || covered() || r.optionsOpen || r.confirmOpen) { reset(); return; }
+      if (event.touches.length !== 1 || event.touches[0]!.identifier !== gesture.id || covered() || r.optionsOpen || r.chatOpen || r.confirmOpen) { reset(); return; }
       const touch = event.touches[0]!, dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
       gesture.dx = dx; gesture.dy = dy;
       if (gesture.mode === 'pending') {
@@ -544,7 +576,7 @@ export function App() {
     };
     const onEnd = () => {
       const ended = gesture; reset();
-      if (!ended || covered() || r.optionsOpen || r.confirmOpen) return;
+      if (!ended || covered() || r.optionsOpen || r.chatOpen || r.confirmOpen) return;
       if (ended.mode === 'pull' && ended.dy >= COMMIT) { void latest.current.reloadFresh(); void latest.current.refresh(); }
       if (ended.mode === 'swipe' && Math.abs(ended.dx) >= COMMIT && Math.abs(ended.dx) > Math.abs(ended.dy) * 1.5) {
         const tabs = ['hot', 'feed', 'saved'] as const;
@@ -569,10 +601,10 @@ export function App() {
   }
   /** Releasing the drawer's scroll lock (a style change on <html>) can drop the page elsewhere on phones;
    *  for that one release, put the reader back where they were. */
-  function keepReadingPosition() {
-    const target = r.optionsScroll, until = Date.now() + 1500;
+  function keepReadingPosition(inDetail = false) {
+    const target = r.optionsScroll, until = Date.now() + 1500, path = location.pathname;
     // A page opened from the drawer (Sources) starts at its top instead.
-    const restore = () => { const y = r.sourcesOpen ? 0 : target; if (Date.now() < until && !r.route && Math.abs(scrollY - y) > 2) window.scrollTo(0, y); };
+    const restore = () => { const y = r.sourcesOpen ? 0 : target; if (location.pathname === path && Date.now() < until && (inDetail || !r.route) && Math.abs(scrollY - y) > 2) window.scrollTo(0, y); };
     const observer = new MutationObserver(() => { restore(); requestAnimationFrame(restore); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     setTimeout(() => observer.disconnect(), 1500);
@@ -588,6 +620,7 @@ export function App() {
 
   const view = prefs.view;
   const total = feed?.total ?? 0;
+  const viewed = items.filter(a => a.seen || r.outbox[a.id] === true).length;
   const progress = feed ? t('feed.progress', { shown: items.length, total }) : '';
   const formatLabels = { all: t('format.all'), article: t('format.article'), x: t('format.x') } as const;
   const filterText = [view !== 'saved' && prefs.scope === 'all' ? t('feed.filters.everything') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', view === 'feed' && !prefs.hideSeen ? t('feed.filters.showingSeen') : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
@@ -612,6 +645,7 @@ export function App() {
           <button id="viewSaved" aria-pressed={!hotOpen && view === 'saved'} onClick={() => openTab('saved')}>{t('tabs.saved')}</button>
         </nav>
         <div className="top-actions">
+          <button id="feedDiscuss" className="ghost-button discuss-button" aria-label={t('chat.title')} disabled={hotOpen ? !hot.length : !feed?.total} onClick={() => void discuss()}><Icon name="reply" size={18} /><span>{t('chat.title')}</span></button>
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
@@ -629,7 +663,8 @@ export function App() {
       <main className="reader" ref={readerRef}>
         {hotOpen && <HotList items={hot} loading={hotLoading} actions={actions} dismiss={item => void dismissHot(item)} />}
         <div id="feedView" hidden={hotOpen}>
-        {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen} openAI={() => openSetup('ai')} /></Suspense>}
+        {view === 'feed' && items.length > 0 && <div className="feed-cleanup"><button id="hideViewed" className="ghost-button" disabled={!viewed} onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button></div>}
+        {view === 'saved' && <Suspense fallback={null}><SavedTopicsPanel selected={prefs.savedTopic} select={savedTopic => void change({ savedTopic }, true)} active={!hotOpen && !route && !sourcesOpen && !optionsOpen && !chatOpen} openAI={() => openSetup('ai')} /></Suspense>}
         <div id="filterSummary" className="filter-summary" hidden={!filterText}><span id="filterText">{filterText}</span><button id="clearFilters" onClick={() => void change({ ...defaults, view, savedTopic: undefined }, true)}>{t('feed.filters.clear')}</button></div>
         <button id="newUpdates" className="new-updates" hidden={!status.newUpdates || view === 'saved'} onClick={applyUpdates}><Icon name="up" size={15} />{t('feed.newPosts')}</button>
         <p id="syncNote" className="notice" hidden={!syncFailed}>{t('feed.offline')}</p>
@@ -642,6 +677,7 @@ export function App() {
         {emptyKind === 'noSources' && <SetupPanel sources={sourceCount} config={config} open={openSetup} />}
         {emptyKind && <EmptyState kind={emptyKind} refreshing={status.refreshing} reset={() => void change({ ...defaults, view, savedTopic: undefined }, true)} refresh={() => void refresh()} showSeen={() => void change({ hideSeen: false }, true)} openSettings={openSetup} />}
         <footer className="feed-footer" hidden={Boolean(empty)}>
+          {view === 'feed' && viewed > 0 && <button className="secondary-button" onClick={hideViewed}><Icon name="checkAll" size={16} />{t('feed.hideViewed', {n: viewed})}</button>}
           <p id="progress">{progress}</p>
           <button id="loadMore" ref={moreRef} className="secondary-button" hidden={!failedNewView && (!feed || feed.next === null)} disabled={loading && !failedNewView} onClick={() => void getPage(!failedNewView && Boolean(feed && feed.next !== null)).catch(() => {})}>{failedNewView ? t('feed.retry') : loading ? t('feed.loadingMore') : t('feed.loadMore')}</button>
           <p id="endNote" hidden={!feed || feed.next !== null}>{total ? t('feed.end') : t('feed.none')}</p>
@@ -654,7 +690,11 @@ export function App() {
         window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'instant' : 'smooth' });
       }}><Icon name="up" /></button>
     </div>
-    {readerUsed && <Suspense fallback={null}><Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} /></Suspense>}
+    {readerUsed && <Suspense fallback={null}><Detail route={route} busy={route ? busy.has(route.id) : false} notice={notice} actions={actions} back={backToFeed} next={route ? nextAfter(route.id) : null} onNext={openNext} language={config?.language ?? ''} discuss={() => void discuss()} /></Suspense>}
+    {chat && <Suspense fallback={null}><ChatPanel open={chatOpen} context={chat.context} returnFocus={chat.returnFocus} close={closeChat} settled={() => { r.chatOpen = false; watch(); save(); }} navigate={id => {
+      closeChat();
+      void api<Article>(`/api/article/${id}`).then(article => { setChat(null); r.chatOpen = false; openDetail(article, null); }).catch(e => notify(e instanceof Error ? e.message : t('chat.failed')));
+    }} /></Suspense>}
     {sourcesOpen && <Suspense fallback={null}><SourcesPage focus={sourcesFocus} back={backToFeed} config={config} failed={status.failed} refresh={() => void refresh()} refreshing={status.refreshing} notify={text => notify(text)}
       changed={() => { r.sourcesChanged = true; }} loaded={(sources, accounts) => setLibrary({ sources, accounts })} /></Suspense>}
     <GestureHint />

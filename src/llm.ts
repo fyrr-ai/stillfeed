@@ -58,39 +58,45 @@ export function describe(): { provider: Provider; model: string } | null {
 }
 
 /** Runs one prompt and returns the model's text. Throws Unavailable when no provider is configured. */
-export async function complete(prompt: string, role: Role = 'default'): Promise<string> {
+export async function complete(prompt: string, role: Role = 'default', signal?: AbortSignal): Promise<string> {
   const name = provider();
   if (!name) throw new Unavailable('No AI provider configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY or STILLFEED_LLM)');
   const chosen = model(role, name);
-  const text = await { anthropic, openai, codex }[name](prompt, chosen);
+  signal?.throwIfAborted();
+  const text = await { anthropic, openai, codex }[name](prompt, chosen, signal);
   console.error(`llm provider=${name} model=${chosen} role=${role}`);
   return text;
 }
 
-async function anthropic(prompt: string, chosen: string) {
+async function anthropic(prompt: string, chosen: string, signal?: AbortSignal) {
   const client = new Anthropic();
   const request = { model: chosen, max_tokens: 16000, messages: [{ role: 'user' as const, content: prompt }] };
   // On a policy decline the API reruns the request on a fallback model it picks per refusal category.
   const response: { stop_reason: string | null; content: { type: string; text?: string }[] } = FALLBACK_FAMILIES.some(family => chosen.startsWith(family))
-    ? await client.beta.messages.stream({ ...request, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }).finalMessage()
-    : await client.messages.stream(request).finalMessage();
+    ? await client.beta.messages.stream({ ...request, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, {signal}).finalMessage()
+    : await client.messages.stream(request, {signal}).finalMessage();
   if (response.stop_reason === 'refusal') throw new Error('The model declined this request');
   return response.content.map(block => block.type === 'text' ? block.text ?? '' : '').join('');
 }
 
-async function openai(prompt: string, chosen: string) {
-  const response = await new OpenAI().chat.completions.create({ model: chosen, messages: [{ role: 'user', content: prompt }] });
+async function openai(prompt: string, chosen: string, signal?: AbortSignal) {
+  const response = await new OpenAI().chat.completions.create({ model: chosen, messages: [{ role: 'user', content: prompt }] }, {signal});
   return response.choices[0]?.message.content ?? '';
 }
 
-async function codex(prompt: string, chosen: string) {
+async function codex(prompt: string, chosen: string, signal?: AbortSignal) {
   if (!Bun.which('codex')) throw new Unavailable('STILLFEED_LLM=codex needs the codex CLI on PATH');
   const dir = mkdtempSync(join(tmpdir(), 'stillfeed-codex-'));
   try {
     const answer = join(dir, 'answer.txt');
     const child = Bun.spawn(['codex', 'exec', '-m', chosen, '-c', 'model_reasoning_effort=low', '-s', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', answer, '-'],
       { cwd: dir, stdin: new Blob([prompt]), stdout: 'ignore', stderr: 'pipe', timeout: 300000 });
-    const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+    const abort = () => child.kill();
+    signal?.addEventListener('abort', abort, {once: true});
+    let stderr: string, code: number;
+    try { [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]); }
+    finally { signal?.removeEventListener('abort', abort); }
+    signal?.throwIfAborted();
     if (code !== 0) throw new Error(`codex exited ${code}`);
     console.error(`codex model=${chosen} tokens=${/tokens used\s*([\d,]+)/.exec(stderr)?.[1] ?? '?'}`);
     const file = Bun.file(answer);

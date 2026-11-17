@@ -25,9 +25,12 @@ saved items, sources, settings, Hot picks, suggestions, cached texts and summari
   suggestions (`src/suggest.ts`). A failing source or model never fails a collection.
 - **The reader worker** (`src/reader_worker.ts`) downloads and cleans articles, transcripts and X Articles and
   writes summaries in batches, so no web request waits for a model.
+- **The chat worker** (`src/chat_worker.ts`) processes the durable conversation queue in `src/chat.ts`.
+  Questions and cancellations are persisted in SQLite; leases and tokens prevent duplicate or stale answers.
 - **AI** goes through one function in `src/llm.ts` for Anthropic, OpenAI-compatible APIs and the Codex CLI.
 - **The UI** is React and [UI SDK](https://www.npmjs.com/package/@ui-sdk/react) in `ui/`, code-split and built by
   `scripts/build.ts`; interface strings live in `ui/i18n.ts`.
+  The on-demand chat panel uses assistant-ui primitives with an external-store runtime over the cached API.
 
 ## Speed budgets
 
@@ -49,7 +52,12 @@ stub collection and no network:
 
 ```sh
 PW=<path to playwright-core> CHROME=<chromium binary> bun run test:ui
+PW=<path to playwright-core> CHROME=<chromium binary> bun run test:chat-ui
 ```
+
+The chat suite uses the real server and chat worker with a fake Codex executable on an isolated PATH. It
+checks answer delivery, saved history, cancellation, context separation, bookmarks, Undo and reading position
+on phone and desktop layouts. It does not use account credentials or make model requests.
 
 ## README images
 
