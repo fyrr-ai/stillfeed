@@ -2,7 +2,7 @@
 // size of a month of real use. Fails when a budget is exceeded. Optional: LIGHTHOUSE=<path to lighthouse cli>
 // CHROME_PATH=<chrome> also runs Lighthouse (median of three, mobile and desktop) and requires 100 everywhere.
 //   bun tests/perf.ts            (after bun run build)
-import { brotliCompressSync } from 'node:zlib';
+import { brotliCompressSync,constants } from 'node:zlib';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,7 +23,8 @@ const firstPaint = ['index.html', ...[...html.matchAll(/(?:src|href)="\/(assets\
 let bytes = 0;
 for (const file of firstPaint) {
   const body = new Uint8Array(await Bun.file(join(root, file)).arrayBuffer());
-  bytes += file.endsWith('.woff2') ? body.byteLength : brotliCompressSync(body).byteLength;
+  const prepared=Bun.file(join(root,file+'.br'));
+  bytes += file.endsWith('.woff2') ? body.byteLength : await prepared.exists() ? prepared.size : brotliCompressSync(body,{params:{[constants.BROTLI_PARAM_QUALITY]:4}}).byteLength;
 }
 report(`first paint download (${firstPaint.length} files, brotli)`, bytes / 1024, BUDGET.firstPaintKB, 'KB');
 

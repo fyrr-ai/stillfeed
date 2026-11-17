@@ -2,7 +2,7 @@ import { brotliCompressSync, constants } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-/** Static files, compressed once (brotli at the highest level, gzip as the fallback) and kept in memory.
+/** Immutable bundles use build-time compression. Other assets use a fast fallback, cached in memory.
  *  Content-hashed bundles in assets/build never change, so browsers keep them for a year without asking. */
 type Bytes = Uint8Array<ArrayBuffer>;
 type Entry = { body: Bytes; br: Bytes | null; gzip: Bytes | null; etag: string; type: string; mtime: number };
@@ -25,9 +25,12 @@ export async function serveStatic(root: string, file: string, request: Request):
     const body = new Uint8Array(await handle.arrayBuffer());
     const type = TYPES[file.split('.').pop()!] ?? handle.type;
     const small = body.byteLength < 1024 || !COMPRESSIBLE.test(type);
+    const precompressed=file.startsWith('assets/build/')&&file.endsWith('.js');
+    const brFile=Bun.file(join(root,file+'.br')),gzipFile=Bun.file(join(root,file+'.gz'));
+    const br=small?null:precompressed&&await brFile.exists()?new Uint8Array(await brFile.arrayBuffer()):new Uint8Array(brotliCompressSync(body,{params:{[constants.BROTLI_PARAM_QUALITY]:4}}));
+    const gzip=small?null:precompressed&&await gzipFile.exists()?new Uint8Array(await gzipFile.arrayBuffer()):new Uint8Array(Bun.gzipSync(body,{level:6}));
     entry = { body, type, mtime, etag: `"${createHash('sha1').update(body).digest('base64url').slice(0, 20)}"`,
-      br: small ? null : new Uint8Array(brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: body.byteLength } })),
-      gzip: small ? null : new Uint8Array(Bun.gzipSync(body, { level: 9 })) };
+      br, gzip };
     cache.set(file, entry);
   }
   const headers: Record<string, string> = { 'Content-Type': entry.type, 'Cache-Control': cacheControl(file), ETag: entry.etag, 'X-Content-Type-Options': 'nosniff', Vary: 'Accept-Encoding' };
