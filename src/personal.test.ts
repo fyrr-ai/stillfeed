@@ -27,9 +27,12 @@ test('Hot rates and shows only its actual Feed snapshot, including its filters a
     const hot=store.feed({...filters,personalBatch:base.batch});expect(hot.total).toBe(1);expect(hot.items[0]?.id).toBe(base.items[0]?.id);
     expect(personal.status().total).toBe(1);
     store.ingest([{url:'https://example.com/new',title:'Article 2 new',source:'Journal',published_at:new Date().toISOString(),ai_is_related:true}],new Date().toISOString());
-    expect(await personal.work(accept,randomUUID())).toBe(0);expect(store.feed(filters,hot.batch).total).toBe(1);
-    const next=store.feed(baseFilters);expect(next.total).toBe(2);expect(personal.status().pending).toBe(1);
-    await personal.work(accept,randomUUID());expect(store.feed({...filters,personalBatch:next.batch}).total).toBe(2);
+    // A new collection is rated ahead with the snapshot's filters, but enters Hot only with the next Feed snapshot.
+    const revision=store.meta('personalRevision');let ahead:Candidate[]=[];
+    expect(await personal.work(async(i,c)=>{ahead=c;return accept(i,c);},randomUUID())).toBe(1);expect(ahead.map(c=>c.title)).toEqual(['Article 2 new']);
+    expect(store.meta('personalRevision')).toBe(revision);expect(store.feed(filters,hot.batch).total).toBe(1);expect(store.feed({...filters,personalBatch:base.batch}).total).toBe(1);
+    const next=store.feed(baseFilters);expect(next.total).toBe(2);expect(personal.status().pending).toBe(0);
+    expect(store.feed({...filters,personalBatch:next.batch}).total).toBe(2);
     store.mark([base.items[0]!.id],true);store.hideSeen(base.batch,randomUUID());
     expect(store.feed({...filters,personalBatch:base.batch}).total).toBe(0);expect(personal.status().total).toBe(0);
     store.save(outside.id,true);const saved=store.feed({...filters,personalOnly:false,savedOnly:true});
@@ -112,5 +115,14 @@ test('the real background worker publishes ratings using the configured provider
   try{
     const worker=Bun.spawn([process.execPath,resolve('src/personal_worker.ts'),'--state-dir',directory,'--once'],{env:{...process.env,PATH:bin+':'+process.env.PATH,STILLFEED_HOME:directory,STILLFEED_LLM:'codex'},stdout:'pipe',stderr:'pipe'});
     expect(await worker.exited).toBe(0);expect(store.feed(filters).total).toBe(4);expect(store.feed(filters).items[0]?.personalReason).toBe('Useful agent technique.');
+  }finally{close()}
+});
+
+test('the active Feed snapshot is rated before rows waiting for the next snapshot',async()=>{
+  const {store,personal,close}=fixture(3);try{
+    store.ingest(Array.from({length:30},(_,i)=>({url:`https://example.com/later-${i}`,title:`Later ${i}`,source:'Journal',published_at:new Date().toISOString(),ai_is_related:true})),new Date().toISOString());
+    let offered:Candidate[]=[];await personal.work(async(i,c)=>{offered=c;return accept(i,c);},randomUUID());
+    expect(offered.slice(0,3).map(c=>c.title).sort()).toEqual(['Article 0','Article 1','Article 2']);expect(offered).toHaveLength(30);
+    expect(personal.status()).toMatchObject({total:3,pending:0});
   }finally{close()}
 });

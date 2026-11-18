@@ -214,6 +214,24 @@ export class Store {
     return count;
   }
   article(id:string) {return this.db.query('SELECT * FROM articles WHERE id=?').get(id) as RecordData|null;}
+  /** Rows a snapshot with these filters takes at this revision (before Hot, seen and ordering). A regular Feed keeps
+   *  the outstanding queue even after its original time window moves on; current source, format and search filters
+   *  still apply to both old and new entries. */
+  selection(filters:Filters,revision:number) {
+    const generated=date(this.meta('generatedAt'),Date.now());
+    const conditions=['(a.sort_at>=? OR EXISTS(SELECT 1 FROM feed_queue q WHERE q.article_id=a.id))','a.sort_at<=?','a.created_revision<=?','EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)','NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=a.id)'];
+    const values:(string|number)[]=[generated-filters.hours*3600000,generated,revision];
+    if(filters.savedOnly){conditions.splice(0,conditions.length,'a.created_revision<=?','EXISTS(SELECT 1 FROM saved s WHERE s.article_id=a.id)');values.splice(0,values.length,revision);}
+    if(filters.savedOnly && filters.savedTopic){
+      if(filters.savedTopic==='ungrouped')conditions.push('NOT EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id)');
+      else {conditions.push('EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id AND t.topic_id=?)');values.push(filters.savedTopic);}
+    }
+    if(filters.categories.length&&!filters.savedOnly){conditions.push('('+filters.categories.map(category=>category==='ai'?'a.ai_topic=1':'a.data_topic=1').join(' OR ')+')');}
+    if(filters.kind!=='all'){conditions.push('a.kind=?');values.push(filters.kind);}
+    const tokens=filters.q.match(/[\p{L}\p{N}_]+/gu)?.slice(0,20)||[];
+    if(tokens.length){conditions.push('a.id IN (SELECT article_id FROM search WHERE search MATCH ?)');values.push(tokens.map(t=>'"'+t+'"*').join(' AND '));}
+    return {conditions,values};
+  }
   feed(filters:Filters, batchId?:string, offset=0, limit=30) {
     type Batch={id:string;created:number;revision:number;filters:string;total:number};
     let batch:Batch|null=null;
@@ -233,26 +251,12 @@ export class Store {
         if(baseFilters.queueVersion!==2)parent=this.feed({...baseFilters,revision:undefined,seenBefore:undefined}).batch;
         filters={...filters,personalBatch:parent,personalProfile:this.meta('personalProfile')||'',personalRevision:Number(this.meta('personalRevision')||0)};
       }
-      const revision=filters.revision || Number(this.meta('revision')||0);
-      const generated=date(this.meta('generatedAt'),Date.now());
-      const cutoff=generated-filters.hours*3600000, before=filters.seenBefore||Date.now();
-      // Keep the outstanding queue even after its original time window moves on. Current
-      // source, format and search filters still apply to both old and new entries.
-      const conditions=['(a.sort_at>=? OR EXISTS(SELECT 1 FROM feed_queue q WHERE q.article_id=a.id))','a.sort_at<=?','a.created_revision<=?','EXISTS(SELECT 1 FROM article_sources r JOIN sources s ON s.id=r.source_id WHERE r.article_id=a.id AND s.enabled=1)','NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=a.id)'];
-      const values:(string|number)[]=[cutoff,generated,revision];
-      if(filters.savedOnly){conditions.splice(0,conditions.length,'a.created_revision<=?','EXISTS(SELECT 1 FROM saved s WHERE s.article_id=a.id)');values.splice(0,values.length,revision);}
-      if(filters.savedOnly && filters.savedTopic){
-        if(filters.savedTopic==='ungrouped')conditions.push('NOT EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id)');
-        else {conditions.push('EXISTS(SELECT 1 FROM saved_topic_items t WHERE t.article_id=a.id AND t.topic_id=?)');values.push(filters.savedTopic);}
-      }
-      if(filters.categories.length&&!filters.savedOnly){conditions.push('('+filters.categories.map(category=>category==='ai'?'a.ai_topic=1':'a.data_topic=1').join(' OR ')+')');}
+      const revision=filters.revision || Number(this.meta('revision')||0), before=filters.seenBefore||Date.now();
+      const {conditions,values}=this.selection(filters,revision);
       if(filters.personalOnly&&!filters.savedOnly){
         conditions.push('EXISTS(SELECT 1 FROM batch_items i WHERE i.batch_id=? AND i.article_id=a.id)','EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=? AND p.score>=2)');values.push(filters.personalBatch!,filters.personalProfile!);
       }
-      if(filters.kind!=='all'){conditions.push('a.kind=?');values.push(filters.kind);}
       if(filters.hideSeen){conditions.push('(v.at IS NULL OR v.at>?)');values.push(before);}
-      const tokens=filters.q.match(/[\p{L}\p{N}_]+/gu)?.slice(0,20)||[];
-      if(tokens.length){conditions.push('a.id IN (SELECT article_id FROM search WHERE search MATCH ?)');values.push(tokens.map(t=>'"'+t+'"*').join(' AND '));}
       const personalOrder=filters.personalOnly&&!filters.savedOnly?'(SELECT score FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?) DESC,':'';
       if(personalOrder)values.push(filters.personalProfile!);
       const ids=this.db.query(`SELECT a.id FROM articles a LEFT JOIN seen v ON v.article_id=a.id WHERE ${conditions.join(' AND ')} ORDER BY ${personalOrder}${filters.savedOnly?'(SELECT at FROM saved WHERE article_id=a.id)':'a.sort_at'} DESC,a.id DESC`).all(...values) as {id:string}[];

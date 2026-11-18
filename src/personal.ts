@@ -1,5 +1,5 @@
 import { complete, describe, json, language } from './llm';
-import { hash, type Store } from './store';
+import { hash, type Filters, type Store } from './store';
 import {Reader} from './reader';
 import {Summaries} from './summary';
 
@@ -31,6 +31,14 @@ export class Personal {
       AND NOT EXISTS(SELECT 1 FROM feed_dismissals d WHERE d.article_id=a.id)`;
   }
   private batch(){return this.store.meta('personalFeedBatch')||'';}
+  /** Rows to rate: the active Feed snapshot first, then the rows the next Feed snapshot with the same filters would take,
+   *  so Hot is complete as soon as the reader takes new data. Hot itself still shows only the active snapshot. */
+  private candidates() {
+    const batch=this.batch(),parent=this.store.db.query('SELECT filters FROM batches WHERE id=?').get(batch) as {filters:string}|null;
+    const base:Pick<Filters,'categories'|'kind'|'q'>=parent?JSON.parse(parent.filters):{categories:[],kind:'all',q:''};
+    const next=this.store.selection({categories:base.categories,kind:base.kind,q:base.q,hideSeen:false,hours:this.store.settings().windowHours},Number(this.store.meta('revision')||0));
+    return {where:`((${this.eligible()}) OR (${next.conditions.join(' AND ')}))`,values:[batch,...next.values]};
+  }
   status() {
     const row=this.store.db.query(`SELECT COUNT(*) AS total,COUNT(p.article_id) AS rated,COALESCE(SUM(p.score>=2),0) AS matched
       FROM articles a LEFT JOIN personal_ratings p ON p.article_id=a.id AND p.profile=? WHERE ${this.eligible()}`).get(this.store.meta('personalProfile')||'',this.batch()) as {total:number;rated:number;matched:number};
@@ -43,9 +51,10 @@ export class Personal {
     const candidates=this.store.db.transaction(()=>{
       const lease=JSON.parse(this.store.meta('personalLease')||'null') as {token:string;until:number}|null;
       if(lease&&lease.until>Date.now())return [];
+      const {where,values}=this.candidates();
       const rows=this.store.db.query(`SELECT a.id,a.title,a.source,substr(COALESCE(NULLIF(a.summary,''),NULLIF(a.content,''),json_extract(a.tweet,'$.text'),''),1,1500) AS text
-        FROM articles a WHERE ${this.eligible()} AND NOT EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?)
-        ORDER BY a.sort_at DESC,a.id DESC LIMIT 30`).all(this.batch(),profile) as Candidate[];
+        FROM articles a WHERE ${where} AND NOT EXISTS(SELECT 1 FROM personal_ratings p WHERE p.article_id=a.id AND p.profile=?)
+        ORDER BY EXISTS(SELECT 1 FROM batch_items i WHERE i.batch_id=? AND i.article_id=a.id) DESC,a.sort_at DESC,a.id DESC LIMIT 30`).all(...values,profile,this.batch()) as Candidate[];
       for(const row of rows){
         row.title=row.title.slice(0,320);row.source=row.source.slice(0,160);
         const reading=this.reader.cached(row.id),summary=reading?this.summaries.cached(row.id,reading):null;
@@ -69,7 +78,10 @@ export class Personal {
         if(lease?.token!==token||lease.until<=Date.now()||this.store.meta('personalProfile')!==profile)return 0;
         const insert=this.store.db.query('INSERT OR IGNORE INTO personal_ratings VALUES(?,?,?,?,?,?)');
         for(const r of ratings)insert.run(r.id,profile,r.score,r.reason.trim().slice(0,240),Date.now(),describe()?.model||'unknown');
-        this.store.setMeta('personalError','');this.store.setMeta('personalRetryAt','0');if(ratings.some(r=>r.score>=2))this.bump();
+        this.store.setMeta('personalError','');this.store.setMeta('personalRetryAt','0');
+        // Only a new match in the active snapshot changes Hot; rows rated ahead wait for the next Feed snapshot.
+        const current=this.store.db.query('SELECT 1 FROM batch_items WHERE batch_id=? AND article_id=?');
+        if(ratings.some(r=>r.score>=2&&current.get(this.batch(),r.id)))this.bump();
         return ratings.length;
       }).immediate();
     } catch(error) {
