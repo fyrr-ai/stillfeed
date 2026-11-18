@@ -14,6 +14,7 @@ import { join } from 'node:path';
  *   OPENAI_BASE_URL       any OpenAI-compatible server (OpenRouter, Ollama, vLLM, LM Studio).
  *
  * Prompts are short and every caller parses JSON out of the answer, so a provider only has to return text.
+ * Only Discuss may search the web (`web: true`); every other call runs without tools.
  */
 export type Provider = 'anthropic' | 'openai' | 'codex';
 export type Role = 'default' | 'fast';
@@ -57,26 +58,44 @@ export function describe(): { provider: Provider; model: string } | null {
   try { const name = provider(); return name ? { provider: name, model: model('default', name) } : null; } catch { return null; }
 }
 
+/** Whether the configured provider can search the web for Discuss. OpenAI-compatible servers have no common search tool. */
+export function searchesWeb(): boolean {
+  try { const name = provider(); return name === 'anthropic' || name === 'codex'; } catch { return false; }
+}
+
 /** Runs one prompt and returns the model's text. Throws Unavailable when no provider is configured. */
-export async function complete(prompt: string, role: Role = 'default', signal?: AbortSignal): Promise<string> {
+export async function complete(prompt: string, role: Role = 'default', signal?: AbortSignal, options: { web?: boolean } = {}): Promise<string> {
   const name = provider();
   if (!name) throw new Unavailable('No AI provider configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY or STILLFEED_LLM)');
   const chosen = model(role, name);
   signal?.throwIfAborted();
-  const text = await { anthropic, openai, codex }[name](prompt, chosen, signal);
-  console.error(`llm provider=${name} model=${chosen} role=${role}`);
+  const web = options.web === true && searchesWeb();
+  const text = await { anthropic, openai, codex }[name](prompt, chosen, signal, web);
+  console.error(`llm provider=${name} model=${chosen} role=${role}${web ? ' web=on' : ''}`);
   return text;
 }
 
-async function anthropic(prompt: string, chosen: string, signal?: AbortSignal) {
+/** Anthropic-hosted search and fetch; their results arrive as content blocks, so there is no client tool loop. */
+const WEB_TOOLS: Anthropic.ToolUnion[] = [
+  { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+  { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+];
+
+async function anthropic(prompt: string, chosen: string, signal?: AbortSignal, web = false) {
   const client = new Anthropic();
-  const request = { model: chosen, max_tokens: 16000, messages: [{ role: 'user' as const, content: prompt }] };
-  // On a policy decline the API reruns the request on a fallback model it picks per refusal category.
-  const response: { stop_reason: string | null; content: { type: string; text?: string }[] } = FALLBACK_FAMILIES.some(family => chosen.startsWith(family))
-    ? await client.beta.messages.stream({ ...request, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, {signal}).finalMessage()
-    : await client.messages.stream(request, {signal}).finalMessage();
-  if (response.stop_reason === 'refusal') throw new Error('The model declined this request');
-  return response.content.map(block => block.type === 'text' ? block.text ?? '' : '').join('');
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }];
+  const fallback = FALLBACK_FAMILIES.some(family => chosen.startsWith(family));
+  // A server tool loop can pause; resending the paused turn resumes it. Bounded so a stuck search cannot loop.
+  for (let turn = 0; ; turn++) {
+    const request = { model: chosen, max_tokens: 16000, messages, ...(web ? { tools: WEB_TOOLS } : {}) };
+    // On a policy decline the API reruns the request on a fallback model it picks per refusal category.
+    const response: { stop_reason: string | null; content: Anthropic.ContentBlock[] } = fallback
+      ? await client.beta.messages.stream({ ...request, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } as Anthropic.Beta.MessageCreateParamsStreaming, {signal}).finalMessage() as unknown as Anthropic.Message
+      : await client.messages.stream(request, {signal}).finalMessage();
+    if (response.stop_reason === 'refusal') throw new Error('The model declined this request');
+    if (response.stop_reason !== 'pause_turn' || turn >= 4) return response.content.map(block => block.type === 'text' ? block.text : '').join('');
+    messages.splice(1, messages.length - 1, { role: 'assistant', content: response.content });
+  }
 }
 
 async function openai(prompt: string, chosen: string, signal?: AbortSignal) {
@@ -84,12 +103,23 @@ async function openai(prompt: string, chosen: string, signal?: AbortSignal) {
   return response.choices[0]?.message.content ?? '';
 }
 
-async function codex(prompt: string, chosen: string, signal?: AbortSignal) {
+// Codex runs with no shell, MCP servers, goals or image generation, in a read-only sandbox, so text from articles
+// cannot reach local files. Connected ChatGPT apps (mail, calendar, GitHub...) stay off; Discuss enables only the
+// search app, which is how Codex reaches the web here (its native web_search setting offers no tool to the model).
+// At low effort the model announces a search and then ends without calling it, so web answers use medium.
+export function codexArgs(chosen: string, web: boolean, answer: string) {
+  return ['codex', 'exec', '-m', chosen, '-c', `model_reasoning_effort=${web ? 'medium' : 'low'}`,
+    '-c', 'mcp_servers={}', '--disable', 'shell_tool', '--disable', 'unified_exec', '--disable', 'goals', '--disable', 'image_generation', '-s', 'read-only',
+    ...(web ? ['-c', 'apps._default.enabled=false', '-c', 'apps.connector_openai_search_service.enabled=true'] : ['--disable', 'apps']),
+    '--skip-git-repo-check', '--ephemeral', '-o', answer, '-'];
+}
+
+async function codex(prompt: string, chosen: string, signal?: AbortSignal, web = false) {
   if (!Bun.which('codex')) throw new Unavailable('STILLFEED_LLM=codex needs the codex CLI on PATH');
   const dir = mkdtempSync(join(tmpdir(), 'stillfeed-codex-'));
   try {
     const answer = join(dir, 'answer.txt');
-    const child = Bun.spawn(['codex', 'exec', '-m', chosen, '-c', 'model_reasoning_effort=low', '-s', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', answer, '-'],
+    const child = Bun.spawn(codexArgs(chosen, web, answer),
       { cwd: dir, stdin: new Blob([prompt]), stdout: 'ignore', stderr: 'pipe', timeout: 300000 });
     const abort = () => child.kill();
     signal?.addEventListener('abort', abort, {once: true});

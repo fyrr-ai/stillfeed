@@ -131,3 +131,10 @@ test('long prepared article excerpts retain their text budget instead of becomin
  const sources=JSON.parse(prompt.split('SOURCE TEXT\n')[1]!.split('\nCONVERSATION')[0]!);
  expect(sources[0].text).toBe(text);expect(sources[0].coverage).toBe('excerpt');
 });
+
+test('the prompt offers web search only when the provider can search', () => {
+  const sources=[{id:message('w'),kind:'external',url:'https://example.com/w',title:'W',text:'body',coverage:'full'}] as Parameters<typeof chatPrompt>[0];
+  expect(chatPrompt(sources,[],true)).toContain('You have a web search tool');
+  expect(chatPrompt(sources,[],false)).toContain('You cannot search the web here');
+  expect(chatPrompt(sources,[],false)).not.toContain('You have a web search tool');
+});

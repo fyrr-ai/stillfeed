@@ -44,6 +44,14 @@ SQLite alongside its parent post, kept for saved posts, and reused by follow-up 
 in existing conversations. Failed downloads remain explicit unavailable sources and are retried on the next
 question; earlier assistant statements about missing text do not override newly loaded sources.
 
+Chat can also search the web for questions the sources do not answer, such as an unexplained term or a
+person's current role, and cites the pages it used. Anthropic uses its hosted web search and web fetch
+tools. The Codex CLI enables only the search app from your ChatGPT account; your other connected apps
+(mail, calendar, GitHub and others), MCP servers and the shell stay off, and the sandbox is read-only, so
+text in an article cannot make the model act on your accounts or read local files. OpenAI-compatible
+servers have no common search tool, so chat there answers from the sources and general knowledge only.
+Summaries, Hot, triage and suggestions never use tools.
+
 The counter in the right side of the pinned header shows how many rows in the current batch you have not seen yet.
 Tap it for the seen and batch counts and **Hide seen · count**,
 which removes only rows already seen from the current snapshot. The same action is available in the footer,

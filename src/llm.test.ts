@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { complete, describe, json, model, provider, Unavailable } from './llm';
+import { codexArgs, complete, describe, json, model, provider, searchesWeb, Unavailable } from './llm';
 
 const keys = ['STILLFEED_LLM', 'STILLFEED_LLM_MODEL', 'STILLFEED_LLM_FAST_MODEL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const;
 const saved = Object.fromEntries(keys.map(k => [k, process.env[k]]));
@@ -29,4 +29,25 @@ test('no provider means Unavailable, never a request', async () => {
 test('json finds the object inside prose or a code fence', () => {
   expect(json('Sure!\n```json\n{"keep":[1,2]}\n```')).toEqual({ keep: [1, 2] });
   expect(() => json('no')).toThrow();
+});
+
+test('only Discuss can search the web, and only through providers that support it', () => {
+  set({ STILLFEED_LLM: 'codex' }); expect(searchesWeb()).toBe(true);
+  set({ ANTHROPIC_API_KEY: 'y' }); expect(searchesWeb()).toBe(true);
+  set({ OPENAI_API_KEY: 'x' }); expect(searchesWeb()).toBe(false);
+  set({}); expect(searchesWeb()).toBe(false);
+});
+
+test('codex runs without shell, MCP servers or connected apps; web adds only the search app', () => {
+  const plain = codexArgs('m', false, 'a'), web = codexArgs('m', true, 'a');
+  for (const args of [plain, web]) {
+    for (const feature of ['shell_tool', 'unified_exec', 'goals', 'image_generation']) expect(args.join(' ')).toContain(`--disable ${feature}`);
+    expect(args.join(' ')).toContain('mcp_servers={}');
+    expect(args.join(' ')).toContain('-s read-only');
+  }
+  expect(plain.join(' ')).toContain('--disable apps');
+  expect(plain.join(' ')).not.toContain('search_service');
+  expect(web.join(' ')).toContain('apps._default.enabled=false');
+  expect(web.join(' ')).toContain('apps.connector_openai_search_service.enabled=true');
+  expect(web.join(' ')).not.toContain('--disable apps');
 });
