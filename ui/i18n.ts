@@ -33,7 +33,7 @@ export const en = {
   'feed.hiddenViewed': 'Hidden {n} seen updates',
   // Top bar and tabs
   'app.name': 'Feed',
-  'feed.readCount': '{read} seen of {total} in this batch',
+  'feed.readCount': '{unseen} not seen yet · {read} of {total} seen in this batch',
   'feed.batchActions': 'Batch actions',
   'feed.syncBeforeHide': 'Seen updates are still syncing. Please try hiding them again.',
   'app.tagline': 'Your daily signal',

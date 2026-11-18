@@ -59,9 +59,9 @@ try{
     const {context,page}=await app();await page.goto(base);await page.locator('#feed .feed-card').first().waitFor();
     const batch=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('stillfeed-session')!).batch);
     const feed=await api('/api/feed?batch='+batch);await api('/api/seen',{ids:feed.items.slice(0,3).map((a:{id:string})=>a.id),seen:true});
-    await page.reload();await page.locator('#readCount').filter({hasText:'3/'}).waitFor();await page.locator('#readCount').click();await page.locator('#hideViewed').waitFor();
+    await page.reload();await page.locator('#readCount[aria-label*=" · 3 of "]').waitFor();await page.locator('#readCount').click();await page.locator('#hideViewed').waitFor();
     const before=await shot(page,'hide-menu');await page.locator('#hideViewed').click();await page.getByRole('button',{name:'Undo',exact:true}).waitFor();
-    const after=await shot(page,'hide-after');await page.getByRole('button',{name:'Undo',exact:true}).click();await page.locator('#readCount').filter({hasText:'3/'}).waitFor();
+    const after=await shot(page,'hide-after');await page.getByRole('button',{name:'Undo',exact:true}).click();await page.locator('#readCount[aria-label*=" · 3 of "]').waitFor();
     await page.locator('#readCount').click();await page.locator('#hideViewed').waitFor();const undo=await shot(page,'hide-undo');
 
     await context.close();

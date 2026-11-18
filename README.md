@@ -48,7 +48,7 @@ Ask a follow-up question about an article or the current batch, without leaving 
 <td width="33%" valign="top">
 <img src="docs/assets/stillfeed-hide-seen.png" width="100%" alt="Animation: open the seen counter, choose Hide seen, and use Undo to restore the hidden posts. Bookmarks remain saved.">
 <h3>Hide seen</h3>
-The counter shows what you've seen. Hide seen clears it, with Undo. Nothing disappears on its own.
+The counter shows what's left to see. Hide seen clears what you've read, with Undo. Nothing disappears on its own.
 </td>
 </tr>
 </table>

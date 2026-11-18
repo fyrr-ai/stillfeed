@@ -646,7 +646,7 @@ export function App({initialFeed}: {initialFeed?:Feed}) {
   const filterText = [view !== 'saved' && !prefs.categories.length ? t('feed.filters.everything') : prefs.categories.length===1 ? t(prefs.categories[0]==='ai'?'settings.category.ai':'settings.category.data') : '', prefs.kind !== 'all' ? formatLabels[prefs.kind] : '', prefs.q ? t('feed.filters.search', { q: prefs.q }) : ''].filter(Boolean).join(' · ');
   const empty = !loading && !booting && feed && !total;
   const feedRefreshing = status.refreshing && view === 'feed';
-  const counterButton = <button id="readCount" className="read-count" aria-label={t('feed.readCount', {read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{total-unseen}/{total}</span><Icon name="chevron" size={12} /></button>;
+  const counterButton = <button id="readCount" className="read-count" aria-label={t('feed.readCount', {unseen,read: total-unseen,total})} title={t('feed.batchActions')} onClick={() => setCounterOpen(true)}><span>{unseen}</span><Icon name="chevron" size={12} /></button>;
   const sourceCount = library ? library.sources.length : null;
   const sourcesSummary = useMemo(() => library ? summarize(library.sources, library.accounts, status.failed) : null, [library, status.failed]);
   const emptyKind: EmptyKind | null = !empty ? null : prefs.q || (view === 'saved' && prefs.savedTopic) ? 'noResults' : view === 'saved' ? 'nothingSaved' : sourceCount === 0 ? 'noSources' : status.stored === 0 ? 'collecting' : 'noUpdates';
@@ -665,7 +665,7 @@ export function App({initialFeed}: {initialFeed?:Feed}) {
         </nav>
         <div className="top-actions">
           <button id="feedDiscuss" className="icon-button discuss-button" aria-label={t('chat.title')} disabled={!total} onClick={() => void discuss()}><Icon name="reply" size={18} /></button>
-          {view !== 'saved' && feed && (chromeReady||counterOpen ? <Suspense fallback={counterButton}><SeenCounter read={total-unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense> : counterButton)}
+          {view !== 'saved' && feed && (chromeReady||counterOpen ? <Suspense fallback={counterButton}><SeenCounter unseen={unseen} total={total} viewed={viewed} busy={hidingViewed} open={counterOpen} setOpen={setCounterOpen} hide={hideViewed} /></Suspense> : counterButton)}
           {!chromeReady ? menuButton : <Suspense fallback={menuButton}><OptionsDrawer open={optionsOpen} trigger={{ label: t('options.open'), icon: <Icon name="menu" /> }} onOpenChange={open => { if (open) r.optionsScroll = scrollY; else keepReadingPosition(); setOptionsOpen(open); }} onOpenChangeComplete={open => {
             if (open && r.focusSearch) { r.focusSearch = false; document.getElementById('searchInput')?.focus(); }
             // Closing the drawer returns focus to its trigger, which a page opened from it (Sources) hides.
